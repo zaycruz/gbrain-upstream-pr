@@ -14,7 +14,7 @@ user-facing reference; for implementation details see
 
 ## What ships in the box
 
-Two bundled packs:
+Bundled packs include:
 
 - **`gbrain-base`** (default) — reproduces pre-v0.38 hardcoded behavior
   byte-for-byte. Existing brains see zero behavior change after upgrade.
@@ -30,6 +30,17 @@ Two bundled packs:
 
   ```bash
   gbrain schema use gbrain-recommended
+  ```
+
+- **`raava-base`** — a self-contained superset of `gbrain-base` for
+  Raava brains. It copies all 25 base page types plus the base link,
+  frontmatter, enrichable, and filing declarations, then adds Raava's
+  decision, lesson, thesis, journal, research, runbook, memory, ADR,
+  knowledge-base, and ops-note types. It intentionally declares no
+  migration mapping rules. Activate it with:
+
+  ```bash
+  gbrain schema use raava-base
   ```
 
 Plus user-installed packs at `~/.gbrain/schema-packs/<name>/pack.yaml`

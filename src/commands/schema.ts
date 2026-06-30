@@ -178,8 +178,10 @@ async function runActive(_args: string[]): Promise<void> {
   }
 }
 
+const BUNDLED_SCHEMA_PACKS = ['gbrain-base', 'gbrain-recommended', 'raava-base', 'gbrain-creator', 'gbrain-investor', 'gbrain-engineer', 'gbrain-everything', 'gbrain-base-v2'];
+
 function runList(_args: string[]): void {
-  const bundled = ['gbrain-base', 'gbrain-recommended'];
+  const bundled = BUNDLED_SCHEMA_PACKS;
   const installedDir = gbrainPath('schema-packs');
   const installed: string[] = [];
   if (existsSync(installedDir)) {
@@ -366,12 +368,13 @@ function runUse(args: string[]): void {
 }
 
 function packPathByName(name: string): string | null {
-  if (name === 'gbrain-base') {
+  if (BUNDLED_SCHEMA_PACKS.includes(name)) {
     // Resolve bundled YAML — try a few locations.
     const here = dirname(new URL(import.meta.url).pathname);
+    const file = `${name}.yaml`;
     const candidates = [
-      join(here, '..', 'core', 'schema-pack', 'base', 'gbrain-base.yaml'),
-      join(here, '..', '..', 'src', 'core', 'schema-pack', 'base', 'gbrain-base.yaml'),
+      join(here, '..', 'core', 'schema-pack', 'base', file),
+      join(here, '..', '..', 'src', 'core', 'schema-pack', 'base', file),
     ];
     for (const c of candidates) {
       if (existsSync(c)) return c;

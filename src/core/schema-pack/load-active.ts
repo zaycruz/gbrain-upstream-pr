@@ -104,6 +104,7 @@ function defaultPackLocator(name: string): string | null {
   const BUNDLED: ReadonlyArray<string> = [
     'gbrain-base',
     'gbrain-recommended',
+    'raava-base',
     'gbrain-creator',
     'gbrain-investor',
     'gbrain-engineer',

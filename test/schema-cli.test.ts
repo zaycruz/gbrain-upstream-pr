@@ -63,6 +63,7 @@ describe('gbrain schema CLI (Phase C)', () => {
     expect(r.code).toBe(0);
     expect(r.stdout).toContain('Bundled packs:');
     expect(r.stdout).toContain('gbrain-base');
+    expect(r.stdout).toContain('raava-base');
   });
 
   test('schema show gbrain-base prints manifest details', () => {

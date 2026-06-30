@@ -2,6 +2,21 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [0.42.54.0] - 2026-06-30
+
+**Raava brains can now opt into their real production shape without inheriting the destructive type-unification path.** The new bundled `raava-base` schema pack is a self-contained superset of `gbrain-base`: all 25 starter page types and their link/frontmatter/enrichment/filing rules are copied into the pack, then Raava's decision, lesson, thesis, journal, research, runbook, memory, ADR, knowledge-base, and ops-note pages are added with aliases for the names already found in the wild.
+
+### Added
+- **`raava-base` bundled schema pack.** Activate it with `gbrain schema use raava-base` when a Raava brain needs canonical support for decisions, lessons, journals, runbooks, ADRs, memory pages, and knowledge-base material.
+- **Alias folding for Raava's duplicate type names.** `lesson-learned`, `daily-journal`, `daily-note`, `ADR`, and `knowledge` resolve to their canonical page types through the pack's alias graph.
+
+### Safety
+- **No migration mapping rules.** `raava-base` intentionally has no mapping-rule block, so the type-unification catch-all that retypes unknown pages cannot run against this pack.
+- **Self-contained base copy.** The pack keeps `extends: gbrain-base` as metadata, but the manifest itself carries every base page type and companion rule so path-based type inference does not depend on runtime inheritance.
+
+### To take advantage of v0.42.54.0
+`gbrain upgrade`, then run `gbrain schema validate raava-base` and `gbrain schema use raava-base` in Raava brain checkouts that should use the canonical Raava schema. No data migration is required.
+
 ## [0.42.53.0] - 2026-06-23
 
 **`gbrain sync` works again on managed Postgres brains: the durable-checkpoint pin write was encoding its value the wrong way, so every multi-source sync aborted at the very first checkpoint. Fixed, plus a repo-wide sweep of the same JSONB footgun and a new CI guard so it can't come back.** A recent release added a structural check on the sync checkpoint table; the pin write that runs before every drain bound its value as a string rather than a real array, so the check rejected it and the run bailed before importing anything. The bug was invisible on the embedded engine (its driver parses the value either way) and only bit managed Postgres.
