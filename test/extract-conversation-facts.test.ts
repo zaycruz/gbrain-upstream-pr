@@ -19,6 +19,7 @@ import {
   resetGateway,
   type ChatResult,
 } from '../src/core/ai/gateway.ts';
+import { _resetLlmCacheForTests } from '../src/core/conversation-parser/llm-base.ts';
 import {
   parseConversationMessages,
   splitIntoSegments,
@@ -34,6 +35,8 @@ import {
   TERMINAL_AUDIT_SOURCE,
   PER_SEGMENT_SOURCE_PREFIX,
 } from '../src/commands/extract-conversation-facts.ts';
+import { withEnv } from './helpers/with-env.ts';
+import { makeChatResult } from './conversation-parser/helpers.ts';
 
 // ---------------------------------------------------------------------------
 // Fixture helpers.
@@ -296,11 +299,14 @@ describe('runExtractConversationFactsCore', () => {
   });
 
   beforeEach(async () => {
+    _resetLlmCacheForTests();
     // Clean state per test. Use executeRaw because PGLite uses different
     // truncation semantics than the canonical reset helper.
     await engine.executeRaw(`DELETE FROM facts WHERE source LIKE 'cli:extract-conversation-facts%'`);
     await engine.executeRaw(`DELETE FROM op_checkpoints WHERE op = 'extract-conversation-facts'`);
+    await engine.executeRaw(`DELETE FROM conversation_parser_llm_cache`);
     await engine.executeRaw(`DELETE FROM pages WHERE slug LIKE 'conversations/%' OR slug LIKE 'people/alice%'`);
+    await engine.unsetConfig('conversation_parser.llm_fallback_enabled');
     // Set facts.extraction_enabled=true so kill-switch doesn't refuse.
     await engine.setConfig('facts.extraction_enabled', 'true');
     // Seed test pages.
@@ -446,6 +452,98 @@ describe('runExtractConversationFactsCore', () => {
       overrideDisabled: true,
     });
     expect(result.pages_processed).toBe(1);
+  });
+
+  test('conversation parser LLM fallback is not attempted when opt-in flag is off', async () => {
+    await engine.setConfig('conversation_parser.llm_fallback_enabled', 'false');
+    await engine.putPage('conversations/custom/no-match', {
+      type: 'conversation',
+      title: 'Custom chat export',
+      compiled_truth: 'custom-chat-export\nalice-example says hello\nbob-demo replies hi',
+      timeline: '',
+      frontmatter: {},
+    });
+
+    let fallbackCalls = 0;
+    const result = await runExtractConversationFactsCore(engine, {
+      sourceId: 'default',
+      slug: 'conversations/custom/no-match',
+      dryRun: true,
+      sleepMs: 0,
+      llmFallbackChatTransport: async () => {
+        fallbackCalls++;
+        return makeChatResult('[]');
+      },
+    });
+
+    expect(fallbackCalls).toBe(0);
+    expect(result.pages_processed).toBe(0);
+    expect(result.pages_skipped).toBe(1);
+    expect(result.segments_processed).toBe(0);
+  });
+
+  test('conversation parser LLM fallback populates messages when opt-in flag is on', async () => {
+    await withEnv({ ANTHROPIC_API_KEY: 'sk-test' }, async () => {
+      await engine.setConfig('conversation_parser.llm_fallback_enabled', 'true');
+      await engine.putPage('conversations/custom/llm-match', {
+        type: 'conversation',
+        title: 'Custom chat export',
+        compiled_truth: 'custom-chat-export-match\nalice-example says hello\nbob-demo replies hi',
+        timeline: '',
+        frontmatter: {},
+      });
+
+      let fallbackCalls = 0;
+      const result = await runExtractConversationFactsCore(engine, {
+        sourceId: 'default',
+        slug: 'conversations/custom/llm-match',
+        dryRun: true,
+        sleepMs: 0,
+        llmFallbackChatTransport: async () => {
+          fallbackCalls++;
+          return makeChatResult(JSON.stringify([
+            { speaker: 'alice-example', timestamp: '2024-03-15T09:00:00Z', text: 'hello' },
+            { speaker: 'bob-demo', timestamp: '2024-03-15T09:01:00Z', text: 'hi' },
+          ]));
+        },
+      });
+
+      expect(fallbackCalls).toBe(1);
+      expect(result.pages_processed).toBe(1);
+      expect(result.pages_skipped).toBe(0);
+      expect(result.segments_processed).toBe(1);
+      expect(result.facts_inserted).toBe(0);
+    });
+  });
+
+  test('conversation parser LLM fallback failure stays no-match without throwing', async () => {
+    await withEnv({ ANTHROPIC_API_KEY: 'sk-test' }, async () => {
+      await engine.setConfig('conversation_parser.llm_fallback_enabled', 'true');
+      await engine.putPage('conversations/custom/llm-null', {
+        type: 'conversation',
+        title: 'Custom chat export',
+        compiled_truth: 'custom-chat-export-null\nalice-example says still unknown\nbob-demo replies still unknown',
+        timeline: '',
+        frontmatter: {},
+      });
+
+      let fallbackCalls = 0;
+      const result = await runExtractConversationFactsCore(engine, {
+        sourceId: 'default',
+        slug: 'conversations/custom/llm-null',
+        dryRun: true,
+        sleepMs: 0,
+        llmFallbackChatTransport: async () => {
+          fallbackCalls++;
+          return makeChatResult('not json');
+        },
+      });
+
+      expect(fallbackCalls).toBe(1);
+      expect(result.pages_processed).toBe(0);
+      expect(result.pages_skipped).toBe(1);
+      expect(result.segments_processed).toBe(0);
+    });
   });
 });
 

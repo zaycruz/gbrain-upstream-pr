@@ -92,6 +92,9 @@ import { withRefreshingLock, LockUnavailableError } from '../core/db-lock.ts';
 import { assertFactsEmbeddingDimMatchesConfig } from '../core/embedding-dim-check.ts';
 import { writeReceipt, shortRunId } from '../core/extract/receipt-writer.ts';
 import { upsertExtractRollup } from '../core/extract/rollup-writer.ts';
+import { resolveModel, TIER_DEFAULTS } from '../core/model-config.ts';
+import { runLlmFallback } from '../core/conversation-parser/llm-fallback.ts';
+import type { ChatTransport } from '../core/conversation-parser/llm-base.ts';
 
 // ---------------------------------------------------------------------------
 // Tunables (exported for tests).
@@ -238,6 +241,8 @@ export interface ExtractConversationFactsCoreOpts {
    * if you need exact-ceiling compliance.
    */
   workers?: number;
+  /** Test seam for conversation-parser LLM fallback. */
+  llmFallbackChatTransport?: ChatTransport;
 }
 
 export interface ExtractConversationFactsResult {
@@ -625,6 +630,8 @@ interface ExtractCoreState {
   segmentLimit: number;
   types: AllowedType[];
   signal: AbortSignal | undefined;
+  /** Test seam for conversation-parser LLM fallback. */
+  llmFallbackChatTransport?: ChatTransport;
   /**
    * v0.41.15.0 (D11): shared per-(sourceId, slug) checkpoint map mutated
    * in place from processPage callers. Map.set is atomic in JS's single-
@@ -690,6 +697,27 @@ async function processPage(
   // meant Telegram-bracket pages with frontmatter dates landed at
   // 1970-01-01. Now they pick up the correct date.
   const parseResult = parseConversation(body, { page });
+  if (parseResult.phase === 'no_match') {
+    const fallbackEnabled = await state.engine.getConfig('conversation_parser.llm_fallback_enabled');
+    if (fallbackEnabled === 'true') {
+      const modelStr = await resolveModel(state.engine, {
+        tier: 'utility',
+        fallback: TIER_DEFAULTS.utility,
+      });
+      const fallbackMessages = await runLlmFallback({
+        modelStr,
+        body,
+        engine: state.engine,
+        signal: state.signal,
+        chatTransport: state.llmFallbackChatTransport,
+      });
+      if (fallbackMessages !== null) {
+        parseResult.messages = fallbackMessages;
+        if (fallbackMessages.length > 0) parseResult.phase = 'llm_fallback';
+        parseResult.llm_fallback_model = modelStr;
+      }
+    }
+  }
   const messages = parseResult.messages;
   if (parseResult.timezone_warning) {
     process.stderr.write(parseResult.timezone_warning + '\n');
@@ -929,6 +957,7 @@ export async function runExtractConversationFactsCore(
     segmentLimit,
     types,
     signal,
+    llmFallbackChatTransport: opts.llmFallbackChatTransport,
     cpMap: new Map(),
   };
 
