@@ -91,6 +91,59 @@ describe.skipIf(skip)('PostgresEngine forward-reference bootstrap (E2E)', () => 
     expect(await engine.getConfig('version')).toBe(String(LATEST_VERSION));
   });
 
+  test('schema-version-119 brain bootstraps event_page_id before replay, then advances through v121/v122', async () => {
+    await engine.initSchema();
+    const conn = (engine as any).sql;
+
+    // Reproduce the production shape: timeline_entries exists, but the v121
+    // column and its dependent FK/indexes do not. Version 119 means v120-v122
+    // must still run through the normal migration ledger path.
+    await conn.unsafe(`
+      ALTER TABLE timeline_entries
+        DROP CONSTRAINT IF EXISTS timeline_entries_event_page_id_fkey;
+      DROP INDEX IF EXISTS idx_timeline_event_dedup;
+      DROP INDEX IF EXISTS idx_timeline_event_page;
+      ALTER TABLE timeline_entries DROP COLUMN IF EXISTS event_page_id;
+    `);
+    await engine.setConfig('version', '119');
+
+    // Bootstrap itself is additive/idempotent and must not advance version.
+    await (engine as any).applyForwardReferenceBootstrap();
+    await (engine as any).applyForwardReferenceBootstrap();
+    expect(await engine.getConfig('version')).toBe('119');
+    await conn.unsafe(`ALTER TABLE timeline_entries DROP COLUMN event_page_id`);
+
+    // Remove the bootstrapped column once more so full init must execute the
+    // production ordering itself: bootstrap, static-schema replay, migrations.
+    // The direct calls above separately pin idempotence and ledger neutrality.
+    // Full init re-runs the bootstrap, replays the static schema,
+    // then applies v120-v122 normally.
+    await engine.initSchema();
+    expect(await engine.getConfig('version')).toBe(String(LATEST_VERSION));
+
+    const column = await conn`
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema = current_schema()
+         AND table_name = 'timeline_entries'
+         AND column_name = 'event_page_id'
+    `;
+    expect(column).toHaveLength(1);
+
+    const constraint = await conn`
+      SELECT 1 FROM pg_constraint
+       WHERE conname = 'timeline_entries_event_page_id_fkey'
+         AND conrelid = 'timeline_entries'::regclass
+    `;
+    expect(constraint).toHaveLength(1);
+
+    const indexes = await conn`
+      SELECT indexname FROM pg_indexes
+       WHERE schemaname = current_schema()
+         AND indexname IN ('idx_timeline_event_page', 'idx_timeline_event_dedup')
+    `;
+    expect(indexes).toHaveLength(2);
+  });
+
   // Migration v120 — schema-lint hardening (#1647 / #171). Postgres-only
   // assertions (security_invoker has no surface on embedded PGLite).
   test('v120: page_links view runs with security_invoker=on (#1647b)', async () => {
