@@ -117,6 +117,53 @@ describe('Bug 11 — orphan_pages is "no inbound links"', () => {
     // source has no inbound (but has outbound) → not orphan under new definition.
     expect(h.orphan_pages).toBe(0);
   });
+
+  test('soft-deleted pages do not affect health debt or score inputs', async () => {
+    await engine.putPage('retired', {
+      type: 'note',
+      title: 'Retired',
+      compiled_truth: 'historical content',
+      frontmatter: {},
+    });
+    await engine.addTimelineEntry('retired', {
+      date: '2026-01-01',
+      summary: 'Newer evidence',
+    });
+    await engine.executeRaw(
+      `UPDATE pages SET updated_at = now() - interval '1 day' WHERE slug = 'retired'`,
+    );
+    await engine.softDeletePage('retired');
+
+    const h = await engine.getHealth();
+
+    expect(h.page_count).toBe(0);
+    expect(h.stale_pages).toBe(0);
+    expect(h.orphan_pages).toBe(0);
+    expect(h.missing_embeddings).toBe(0);
+    expect(h.brain_score).toBe(100);
+  });
+
+  test('soft-deleted entities do not appear in connection rankings', async () => {
+    await engine.putPage('people/active', {
+      type: 'person',
+      title: 'Active',
+      compiled_truth: 'current person',
+      frontmatter: {},
+    });
+    await engine.putPage('companies/retired', {
+      type: 'company',
+      title: 'Retired',
+      compiled_truth: 'historical company',
+      frontmatter: {},
+    });
+    await engine.addLink('people/active', 'companies/retired', '', 'worked_at');
+    await engine.softDeletePage('companies/retired');
+
+    const h = await engine.getHealth();
+
+    expect(h.most_connected.map(({ slug }) => slug)).not.toContain('companies/retired');
+    expect(h.most_connected.find(({ slug }) => slug === 'people/active')?.link_count).toBe(0);
+  });
 });
 
 describe('Bug 11 — doctor renders brain_score breakdown', () => {

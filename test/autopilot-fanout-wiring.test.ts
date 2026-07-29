@@ -67,3 +67,17 @@ describe('autopilot.ts ↔ dispatchPerSource wiring', () => {
     expect(AUTOPILOT_SRC).not.toMatch(/queue\.add\(['"]autopilot-cycle['"][\s\S]{0,400}idempotency_key:\s*`autopilot-cycle:\$\{slot\}`/);
   });
 });
+
+describe('autopilot.ts one-shot scheduler mode', () => {
+  test('accepts --once and exits after dispatching maintenance work', () => {
+    expect(AUTOPILOT_SRC).toContain("const once = args.includes('--once');");
+    const onceExit = AUTOPILOT_SRC.indexOf('if (once) {');
+    const wait = AUTOPILOT_SRC.indexOf('// Wait for next cycle');
+    expect(onceExit).toBeGreaterThan(-1);
+    expect(onceExit).toBeLessThan(wait);
+    expect(AUTOPILOT_SRC.slice(onceExit, wait)).toContain('unlinkSync(lockPath)');
+    expect(AUTOPILOT_SRC.slice(onceExit, wait)).toContain("childSupervisor.killChild('SIGTERM')");
+    expect(AUTOPILOT_SRC).toContain('if (!once) await attemptAutopilotSelfUpgrade');
+    expect(AUTOPILOT_SRC).toContain('if (probeEnabled && !once) {');
+  });
+});

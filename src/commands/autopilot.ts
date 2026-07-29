@@ -307,13 +307,13 @@ async function attemptAutopilotSelfUpgrade(
 export async function runAutopilot(engine: BrainEngine, args: string[]) {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(
-      'Usage: gbrain autopilot [--repo <path>] [--interval N] [--json] [--no-worker]\n' +
+      'Usage: gbrain autopilot [--repo <path>] [--interval N] [--json] [--no-worker] [--once]\n' +
       '       gbrain autopilot --install [--repo <path>]\n' +
       '       gbrain autopilot --uninstall\n' +
       '       gbrain autopilot --status [--json]\n\n' +
       'Self-maintaining brain daemon. Runs the full maintenance cycle\n' +
       '(lint + backlinks + sync + extract + embed + orphans) on an interval.\n\n' +
-      'For a one-shot cron-triggered cycle, see `gbrain dream`.',
+      'For a one-shot scheduler tick, use `gbrain autopilot --once --no-worker`; for a direct cycle, use `gbrain dream`.',
     );
     return;
   }
@@ -336,6 +336,9 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
   const jsonMode = args.includes('--json');
   const forceInline = args.includes('--inline');
   const noWorker = !shouldSpawnAutopilotWorker(args);
+  // Cloud schedulers need the same recommendation and dispatch path as the
+  // daemon, but must exit after one complete tick so their job can finish.
+  const once = args.includes('--once');
 
   if (!repoPath) {
     console.error('No repo path. Use --repo or run gbrain sync --repo first.');
@@ -563,10 +566,10 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
       }
     }
 
-    // v0.42 self-upgrade silent channel (opt-in self_upgrade.mode=auto). Runs
-    // each tick; cache TTL throttles the actual GitHub fetch. On apply it swaps
-    // + exits for supervisor relaunch (never returns). No-op unless mode=auto.
-    await attemptAutopilotSelfUpgrade(engine, engineType, lockPath);
+    // Self-upgrade expects a long-lived supervisor to relaunch the process.
+    // A one-shot scheduler tick has no supervisor, so it must never exit
+    // before it has dispatched its maintenance work.
+    if (!once) await attemptAutopilotSelfUpgrade(engine, engineType, lockPath);
 
     // --no-worker peer-liveness probe (v0.19.1). Runs every cycle, cheap
     // (single SELECT). See NO_WORKER_WARN_TICKS comment above for caveats.
@@ -1023,7 +1026,7 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
     // explaining why the cycle is failing).
     try {
       const probeEnabled = cfg?.autopilot?.nightly_quality_probe?.enabled === true;
-      if (probeEnabled) {
+      if (probeEnabled && !once) {
         const { runNightlyQualityProbe } = await import('../core/cycle/nightly-quality-probe.ts');
         const { runLongMemEvalForProbe, runCrossModalBatchForProbe } = await import('../core/cycle/nightly-probe-adapters.ts');
         const { isAvailable } = await import('../core/ai/gateway.ts');
@@ -1042,6 +1045,17 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
       logError('autopilot.nightly_probe', e);
       // Intentional: do NOT bump consecutiveErrors. Probe failure is
       // informational; autopilot loop continues.
+    }
+
+    if (once) {
+      stopping = true;
+      if (childSupervisor) {
+        childSupervisor.killChild('SIGTERM');
+        await childSupervisor.awaitChildExit(35_000);
+        if (childSupervisor.childAlive) childSupervisor.killChild('SIGKILL');
+      }
+      try { unlinkSync(lockPath); } catch { /* already gone */ }
+      break;
     }
 
     // Wait for next cycle

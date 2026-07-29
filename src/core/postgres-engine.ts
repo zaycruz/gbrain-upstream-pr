@@ -4994,28 +4994,54 @@ export class PostgresEngine implements BrainEngine {
     // number. A hub page that links out to many but has no back-references
     // is working as intended, not an orphan.
     const [h] = await sql`
-      WITH entity_pages AS (
-        SELECT id, slug FROM pages WHERE type IN ('person', 'company')
+      WITH active_pages AS (
+        SELECT id, slug, type, updated_at FROM pages WHERE deleted_at IS NULL
+      ),
+      entity_pages AS (
+        SELECT id, slug FROM active_pages WHERE type IN ('person', 'company')
       )
       SELECT
-        (SELECT count(*) FROM pages) as page_count,
-        (SELECT count(*) FROM content_chunks WHERE embedded_at IS NOT NULL)::float /
-          GREATEST((SELECT count(*) FROM content_chunks), 1)::float as embed_coverage,
-        (SELECT count(*) FROM pages p
+        (SELECT count(*) FROM active_pages) as page_count,
+        (SELECT count(*) FROM content_chunks c
+         JOIN active_pages p ON p.id = c.page_id
+         WHERE c.embedded_at IS NOT NULL)::float /
+          GREATEST((SELECT count(*) FROM content_chunks c
+                    JOIN active_pages p ON p.id = c.page_id), 1)::float as embed_coverage,
+        (SELECT count(*) FROM active_pages p
          WHERE p.updated_at < (SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id)
         ) as stale_pages,
-        (SELECT count(*) FROM pages p
-         WHERE NOT EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = p.id)
-           AND NOT EXISTS (SELECT 1 FROM links l WHERE l.from_page_id = p.id)
+        (SELECT count(*) FROM active_pages p
+         WHERE NOT EXISTS (
+             SELECT 1 FROM links l
+             JOIN active_pages src ON src.id = l.from_page_id
+             WHERE l.to_page_id = p.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM links l
+             JOIN active_pages dst ON dst.id = l.to_page_id
+             WHERE l.from_page_id = p.id
+           )
         ) as orphan_pages,
         (SELECT count(*) FROM links l
-         WHERE NOT EXISTS (SELECT 1 FROM pages p WHERE p.id = l.to_page_id)
+         JOIN active_pages src ON src.id = l.from_page_id
+         LEFT JOIN active_pages dst ON dst.id = l.to_page_id
+         WHERE dst.id IS NULL
         ) as dead_links,
-        (SELECT count(*) FROM content_chunks WHERE embedded_at IS NULL) as missing_embeddings,
-        (SELECT count(*) FROM links) as link_count,
-        (SELECT count(DISTINCT page_id) FROM timeline_entries) as pages_with_timeline,
+        (SELECT count(*) FROM content_chunks c
+         JOIN active_pages p ON p.id = c.page_id
+         WHERE c.embedded_at IS NULL
+        ) as missing_embeddings,
+        (SELECT count(*) FROM links l
+         JOIN active_pages src ON src.id = l.from_page_id
+         JOIN active_pages dst ON dst.id = l.to_page_id
+        ) as link_count,
+        (SELECT count(DISTINCT te.page_id) FROM timeline_entries te
+         JOIN active_pages p ON p.id = te.page_id
+        ) as pages_with_timeline,
         (SELECT count(*) FROM entity_pages e
-         WHERE EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = e.id))::float /
+         WHERE EXISTS (SELECT 1 FROM links l
+                       JOIN active_pages src ON src.id = l.from_page_id
+                       WHERE l.to_page_id = e.id))::float /
           GREATEST((SELECT count(*) FROM entity_pages), 1)::float as link_coverage,
         (SELECT count(*) FROM entity_pages e
          WHERE EXISTS (SELECT 1 FROM timeline_entries te WHERE te.page_id = e.id))::float /
@@ -5024,9 +5050,12 @@ export class PostgresEngine implements BrainEngine {
 
     const connected = await sql`
       SELECT p.slug,
-             (SELECT count(*) FROM links l WHERE l.from_page_id = p.id OR l.to_page_id = p.id)::int as link_count
+             (SELECT count(*) FROM links l
+              JOIN pages src ON src.id = l.from_page_id AND src.deleted_at IS NULL
+              JOIN pages dst ON dst.id = l.to_page_id AND dst.deleted_at IS NULL
+              WHERE l.from_page_id = p.id OR l.to_page_id = p.id)::int as link_count
       FROM pages p
-      WHERE p.type IN ('person', 'company')
+      WHERE p.deleted_at IS NULL AND p.type IN ('person', 'company')
       ORDER BY link_count DESC
       LIMIT 5
     `;
