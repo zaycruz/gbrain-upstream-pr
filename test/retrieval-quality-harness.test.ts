@@ -26,6 +26,13 @@ describe('scoreQuestion', () => {
     expect(r.hit_at_3).toBe(true);
     expect(r.reciprocal_rank).toBeCloseTo(1 / 3, 6);
   });
+  test('scores distinct pages when one page has duplicate chunks', () => {
+    const q: NamedThingQuestion = { family: 'generic-to-named', query: 'x', relevant: ['target'] };
+    const r = scoreQuestion(q, ['noise', 'target', 'target', 'other']);
+    expect(r.hit_at_3).toBe(true);
+    expect(r.recall_at_k).toBe(1);
+    expect(r.recall_at_10).toBe(1);
+  });
   test('miss when relevant absent from top-3', () => {
     const q: NamedThingQuestion = { family: 'title-substring', query: 'x', relevant: ['z'] };
     const r = scoreQuestion(q, ['a', 'b', 'c', 'z']);
