@@ -46,6 +46,8 @@ export interface BackfillOpts {
    * scope to a subset. Undefined = no filter.
    */
   slugPrefix?: string;
+  /** Optional source filter. Undefined = all sources. */
+  sourceId?: string;
   /**
    * When true, recompute even if existing effective_date matches what
    * the chain would produce. Default false (no-op-on-equal saves writes).
@@ -128,6 +130,7 @@ export async function backfillEffectiveDate(
   opts: BackfillOpts = {},
 ): Promise<BackfillResult> {
   const start = Date.now();
+  const sourceId = opts.sourceId ?? null;
   const slugPrefix = opts.slugPrefix?.replace(/[\\%_]/g, (c) => '\\' + c) ?? null;
 
   let lastId = await getCheckpoint(engine, opts.fresh ?? false);
@@ -150,18 +153,23 @@ export async function backfillEffectiveDate(
 
     // Keyset pagination: WHERE id > last_id ORDER BY id LIMIT N. Single-direction
     // walk; safe under concurrent inserts (new rows show up at the tail).
-    const slugFilter = slugPrefix
-      ? `AND slug LIKE $2 ESCAPE '\\\\'`
-      : '';
+    const filters: string[] = [];
     const params: unknown[] = [lastId];
-    if (slugPrefix) params.push(slugPrefix + '%');
+    if (sourceId) {
+      params.push(sourceId);
+      filters.push(`AND source_id = $${params.length}`);
+    }
+    if (slugPrefix) {
+      params.push(slugPrefix + '%');
+      filters.push(`AND slug LIKE $${params.length} ESCAPE '\\\\'`);
+    }
     params.push(limit);
     const limitParam = `$${params.length}`;
 
     const rows = await engine.executeRaw<PageRow>(
       `SELECT id, slug, frontmatter, import_filename, effective_date, effective_date_source, created_at, updated_at
          FROM pages
-         WHERE id > $1 ${slugFilter}
+         WHERE id > $1 ${filters.join(' ')}
          ORDER BY id
          LIMIT ${limitParam}`,
       params,
