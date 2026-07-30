@@ -2208,7 +2208,9 @@ export async function registerBuiltinHandlers(
     }
     const ctx = {
       engine,
-      cfg: null,
+      config: loadConfig() ?? {},
+      logger: console,
+      dryRun: false,
       remote: false,
     } as unknown as import('../core/operations.ts').OperationContext;
     return await runUnifyTypes(ctx, {

@@ -111,8 +111,10 @@ export async function runUnifyTypes(
     `${stats_before.distinct_types} distinct types`,
   );
 
-  // Pack identity capture
-  const activePackBefore = await loadActivePack({ cfg: null, remote: false });
+  // Capture the same configuration plane used by stats/final-sync. Reading
+  // without ctx.config silently falls back to gbrain-base and can report a
+  // false pre-migration pack on workers that have an active custom pack.
+  const activePackBefore = await loadActivePack({ cfg: ctx.config, remote: false });
   const pack_identity_before = activePackBefore.identity;
 
   // 3. Acquire db-lock
@@ -252,24 +254,24 @@ export async function runUnifyTypes(
     let active_pack_flipped = false;
     let pack_identity_after = pack_identity_before;
     if (apply) {
-      // Write to BOTH:
-      //   - DB config (engine.setConfig) — covers federated/multi-source brains
-      //     where future loadActivePack calls thread dbConfig from `config` table.
-      //   - File-plane config (saveConfig) — covers loadActivePack({ cfg, ... })
-      //     callers that read from ~/.gbrain/config.json (homeConfig tier).
-      // Without the file-plane write the local CLI loadActivePack callers
-      // wouldn't see the flip and pack_upgrade_available would keep firing.
-      await ctx.engine.setConfig('schema_pack', input.target_pack);
-      try {
-        const { loadConfigFileOnly, saveConfig } = await import('../config.ts');
-        const existing = loadConfigFileOnly() ?? ({} as Record<string, unknown>);
-        saveConfig({ ...existing, schema_pack: input.target_pack } as never);
-      } catch (e) {
-        warnings.push(
-          `Active-pack flip wrote to DB but file-plane saveConfig failed: ` +
-          `${(e as Error).message}. Run \`gbrain schema use ${input.target_pack}\` ` +
-          `manually to ensure local CLI sees the flip.`,
-        );
+      // Source-scoped runs must not change the default pack for every source.
+      // The DB config resolver gives schema_pack.source.<id> precedence over
+      // the brain-wide key. A brain-wide run retains the existing file+DB
+      // activation behavior.
+      const configKey = sourceId ? `schema_pack.source.${sourceId}` : 'schema_pack';
+      await ctx.engine.setConfig(configKey, input.target_pack);
+      if (!sourceId) {
+        try {
+          const { loadConfigFileOnly, saveConfig } = await import('../config.ts');
+          const existing = loadConfigFileOnly() ?? ({} as Record<string, unknown>);
+          saveConfig({ ...existing, schema_pack: input.target_pack } as never);
+        } catch (e) {
+          warnings.push(
+            `Active-pack flip wrote to DB but file-plane saveConfig failed: ` +
+            `${(e as Error).message}. Run \`gbrain schema use ${input.target_pack}\` ` +
+            `manually to ensure local CLI sees the flip.`,
+          );
+        }
       }
       active_pack_flipped = true;
       const activeAfter = await loadActivePack({
