@@ -25,6 +25,20 @@ import type {
   StepResult,
 } from './types.ts';
 
+
+/**
+ * Preserve terminal-failure state across D7 fresh-plan recomputation.
+ *
+ * This is exported as a focused regression seam: a failed queue job can
+ * remain remediable in the health snapshot, but MUST NOT be submitted again
+ * during the same remediation invocation.
+ */
+export function excludeAbortedRemediations(
+  recommendations: RemediationStep[],
+  abortedIds: ReadonlySet<string>,
+): RemediationStep[] {
+  return recommendations.filter((step) => step.status === 'remediable' && !abortedIds.has(step.id));
+}
 /**
  * Submit ordered Remediation jobs sequentially per D3, with D5 cascade
  * on failure and D7 scoped recheck between steps.
@@ -305,7 +319,7 @@ export async function runRemediation(
       // steps with bumped retry suffix (D1).
       if (recs.length === 0 || stepCount >= maxJobs) break;
       const freshHealth = await engine.getHealth();
-      recs = computeRecommendations(freshHealth, ctx).filter((r) => r.status === 'remediable');
+      recs = excludeAbortedRemediations(computeRecommendations(freshHealth, ctx), abortedIds);
     }
   };
 

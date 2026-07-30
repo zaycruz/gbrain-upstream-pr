@@ -6,7 +6,10 @@
 //
 // Pure read; no side effects.
 
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import type { BrainEngine } from '../engine.ts';
+import { getDefaultSourcePath } from '../source-resolver.ts';
 import type { RecommendationContext } from '../brain-score-recommendations.ts';
 
 // Re-export so consumers can `import { RecommendationContext } from '../remediation'`
@@ -31,7 +34,9 @@ export async function loadRecommendationContext(
   // Also extended the API-key check to recognize the ZE key alongside
   // OpenAI (was OpenAI-only). After Lane C.3, zeroentropy_api_key lives
   // in GBrainConfig + propagates to the gateway env dict.
-  const repoPath = await engine.getConfig('sync.repo_path');
+  const resolvedRepoPath = await getDefaultSourcePath(engine);
+  const repoPath =
+    resolvedRepoPath && existsSync(join(resolvedRepoPath, '.git')) ? resolvedRepoPath : undefined;
   let embeddingModel: string | undefined;
   let embeddingDimensions: number | undefined;
   try {
