@@ -133,7 +133,8 @@ export async function backfillEffectiveDate(
   const sourceId = opts.sourceId ?? null;
   const slugPrefix = opts.slugPrefix?.replace(/[\\%_]/g, (c) => '\\' + c) ?? null;
 
-  let lastId = await getCheckpoint(engine, opts.fresh ?? false);
+  const isScoped = Boolean(sourceId || slugPrefix);
+  let lastId = isScoped ? 0 : await getCheckpoint(engine, opts.fresh ?? false);
   let examined = 0;
   let updated = 0;
   let fallback = 0;
@@ -161,7 +162,7 @@ export async function backfillEffectiveDate(
     }
     if (slugPrefix) {
       params.push(slugPrefix + '%');
-      filters.push(`AND slug LIKE $${params.length} ESCAPE '\\\\'`);
+      filters.push(`AND slug LIKE $${params.length} ESCAPE '\\'`);
     }
     params.push(limit);
     const limitParam = `$${params.length}`;
@@ -245,12 +246,12 @@ export async function backfillEffectiveDate(
     updated += touched;
     lastId = rows[rows.length - 1].id;
     batchNum++;
-    if (!opts.dryRun) await setCheckpoint(engine, lastId);
+    if (!opts.dryRun && !isScoped) await setCheckpoint(engine, lastId);
     opts.onBatch?.({ batch: batchNum, lastId, rowsTouched: touched, cumulative: examined });
   }
 
-  // Walk done; clear the checkpoint so the next manual run starts fresh.
-  if (!opts.dryRun) await clearCheckpoint(engine);
+  // Scoped runs do not touch the global checkpoint.
+  if (!opts.dryRun && !isScoped) await clearCheckpoint(engine);
 
   return {
     examined,

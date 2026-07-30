@@ -22,6 +22,28 @@ describe('backfillEffectiveDate source scope', () => {
     expect(pageRead!.params).toEqual([0, 'source-a', 1000]);
   });
 
+  test('combines source and slug filters without using the global checkpoint', async () => {
+    const calls: Array<{ sql: string; params: unknown[] }> = [];
+    const engine = {
+      kind: 'pglite',
+      executeRaw: async (sql: string, params: unknown[] = []) => {
+        calls.push({ sql, params });
+        return [];
+      },
+    } as unknown as BrainEngine;
+
+    await backfillEffectiveDate(engine, {
+      sourceId: 'source-a',
+      slugPrefix: 'meetings/',
+    });
+
+    const pageRead = calls.find(call => call.sql.includes('FROM pages'));
+    expect(pageRead!.params).toEqual([0, 'source-a', 'meetings/%', 1000]);
+    expect(pageRead!.sql).toContain(`source_id = $2`);
+    expect(pageRead!.sql).toContain(`slug LIKE $3 ESCAPE '\\'`);
+    expect(calls.some(call => call.sql.includes('FROM config'))).toBe(false);
+  });
+
   test('forwards the CLI source filter into a dry-run backfill', async () => {
     const calls: Array<{ sql: string; params: unknown[] }> = [];
     const engine = {
