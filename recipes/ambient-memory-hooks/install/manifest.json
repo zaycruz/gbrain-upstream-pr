@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "recipe": "ambient-memory-hooks",
+  "version": "0.1.0",
+  "install_kind": "copy-into-host-repo",
+  "description": "Installs a fail-open Codex/OMX ambient recall and conservative capture hook. Host hook configuration remains operator-managed.",
+  "target_root_relative_to_host_repo": "services/gbrain-ambient-hooks",
+  "skills_target_root_relative_to_host_repo": "skills",
+  "files": [
+    {
+      "src": "code/codex-omx-hook.mjs",
+      "target": "services/gbrain-ambient-hooks/code/codex-omx-hook.mjs",
+      "mode": "0755"
+    },
+    {
+      "src": "code/codex-omx-hook.d.mts",
+      "target": "services/gbrain-ambient-hooks/code/codex-omx-hook.d.mts",
+      "mode": "0644"
+    }
+  ],
+  "skills": [],
+  "resolver_rows_to_append": []
+}

@@ -3496,6 +3496,20 @@ Three channels share one zero-LLM core (`src/core/context/volunteer.ts`):
 | `op` | `gbrain volunteer-context` / MCP `volunteer_context` | agents without the plugin; one call per turn |
 | `watch` | `gbrain watch` | stream a transcript in, volunteered pages stream out |
 
+For Codex/OMX hosts, the `ambient-memory-hooks` integration recipe can invoke
+the `op` channel automatically from `UserPromptSubmit` and return pointers in
+private `additionalContext`. This removes the need for an always-search policy
+skill while preserving the same confidence gate and pointer cap:
+
+```bash
+gbrain integrations install ambient-memory-hooks --target /path/to/host-repo
+```
+
+The recipe also supports conservative session capture. Capture is independently
+switchable and requires an explicit durable-memory signal; routine conversation,
+hidden context, private reasoning, and raw tool payloads are not captured. See
+`recipes/ambient-memory-hooks.md` for host hook wiring and controls.
+
 ## How it decides
 
 1. **Extract** entities across the last N turns (capitalized runs, `@handles`),

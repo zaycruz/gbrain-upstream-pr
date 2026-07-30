@@ -110,6 +110,20 @@ describe('installRecipeIntoHostRepo — happy path', () => {
     // server.mjs declared mode 0755 — executable bit set
     expect(stat.mode & 0o100).toBeGreaterThan(0);
   });
+
+  it('installs the ambient hook without modifying the host resolver', async () => {
+    const before = readFileSync(join(scratch, 'AGENTS.md'), 'utf8');
+    const result = await installRecipeIntoHostRepo('ambient-memory-hooks', { target: scratch });
+    const hookPath = join(
+      scratch,
+      'services/gbrain-ambient-hooks/code/codex-omx-hook.mjs',
+    );
+
+    expect(result.written).toBe(2);
+    expect(existsSync(hookPath)).toBe(true);
+    expect(statSync(hookPath).mode & 0o100).toBeGreaterThan(0);
+    expect(readFileSync(join(scratch, 'AGENTS.md'), 'utf8')).toBe(before);
+  });
 });
 
 describe('installRecipeIntoHostRepo — refusals', () => {

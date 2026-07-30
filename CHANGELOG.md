@@ -2,6 +2,11 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## Unreleased
+
+### Added
+- **Ambient memory hooks for Codex/OMX.** The new `ambient-memory-hooks` integration recipe volunteers confidence-gated gbrain pointers into private pre-turn context without an always-search policy skill. It also supports conservative session capture when visible conversation contains an explicit durable-memory signal. Hook state is bounded, owner-only, atomic, and fail-open; hidden prompts, private reasoning, raw tool payloads, routine conversation, and likely secrets are not captured.
+
 ## [0.42.57.0] - 2026-07-02
 
 **PGLite incident fix: a busy `gbrain dream` (or `embed`) could have its data-directory lock stolen and get its brain corrupted beyond in-place repair. The lock will no longer be taken from a process that is alive, and an already-corrupted store now tells you exactly how to recover.**
