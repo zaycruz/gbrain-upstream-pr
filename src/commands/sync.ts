@@ -1786,6 +1786,10 @@ async function performSyncInner(engine: BrainEngine, opts: SyncOpts): Promise<Sy
       detachedWorkingTreeManifest.renamed.length > 0);
 
   if (lastCommit === headCommit && !versionMismatch && !versionNeverSet && !hasDetachedWorkingTreeChanges) {
+    // A no-change run still verifies that this source's checked-out commit is
+    // indexed. Record that verification so a quiet repository does not become
+    // permanently "stale" merely because it had nothing new to import.
+    await writeSyncAnchor(engine, opts.sourceId, 'last_commit', headCommit, commitTimeMs(repoPath, headCommit));
     return {
       status: 'up_to_date',
       fromCommit: lastCommit,
@@ -2718,9 +2722,10 @@ async function performSyncInner(engine: BrainEngine, opts: SyncOpts): Promise<Sy
   const advance = async (): Promise<void> => {
     // v0.42.x (#1794): advance to the PINNED target (not live HEAD) — commits
     // past the pin are the next sync's pin..HEAD diff. `commitTimeMs(pin)` stamps
-    // newest_content_at against the commit we drained to. `last_sync_at` is bumped
-    // HERE and ONLY here so the autopilot scheduler never sees a stuck source as
-    // "fresh". The checkpoint rows clear here — CONVERGENCE CONTRACT: sync
+    // newest_content_at against the commit we drained to. `last_sync_at` is
+    // bumped here after an import and in the verified up-to-date branch; both
+    // require the indexed tree to equal the recorded commit. The checkpoint rows
+    // clear here — CONVERGENCE CONTRACT: sync
     // convergence == IMPORT convergence; downstream extract/facts/embed is
     // decoupled (its own resumable stale sweeps).
     await writeSyncAnchor(engine, opts.sourceId, 'last_commit', pin, commitTimeMs(repoPath, pin));

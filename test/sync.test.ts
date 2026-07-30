@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import { buildSyncManifest, isSyncable, pathToSlug, pruneDir, isCodeFilePath } from '../src/core/sync.ts';
-import { buildAutoEmbedArgs, buildGitInvocation } from '../src/commands/sync.ts';
+import { buildAutoEmbedArgs, buildGitInvocation, performSync } from '../src/commands/sync.ts';
 import { mkdtempSync, writeFileSync, rmSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { execSync } from 'child_process';
@@ -909,5 +909,21 @@ describe('#1970: unreachable last_commit bookmark recovery', () => {
     // No further changes → up_to_date (converged).
     const settled = await performSync(engine, { repoPath: repo, ...SYNC_OPTS });
     expect(settled.status).toBe('up_to_date');
+  });
+
+  test('refreshes source freshness when the verified commit is unchanged', async () => {
+    const repo = mkRepo({ 'people/alice.md': personMd('Alice', 'Alice is a person.') });
+    await performSync(engine, { repoPath: repo, ...SYNC_OPTS });
+    await engine.executeRaw(
+      `UPDATE sources SET last_sync_at = now() - interval '2 days' WHERE id = 'default'`,
+    );
+
+    const result = await performSync(engine, { repoPath: repo, ...SYNC_OPTS });
+    const rows = await engine.executeRaw<{ last_sync_at: Date | null }>(
+      `SELECT last_sync_at FROM sources WHERE id = 'default'`,
+    );
+
+    expect(result.status).toBe('up_to_date');
+    expect(rows[0]?.last_sync_at?.getTime()).toBeGreaterThan(Date.now() - 60_000);
   });
 });
