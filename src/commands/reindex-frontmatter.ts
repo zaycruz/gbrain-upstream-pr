@@ -97,12 +97,10 @@ export async function runReindexFrontmatter(
   if (opts.dryRun) {
     // Library function with dryRun=true counts would-update without writing.
     const r = await backfillEffectiveDate(engine, {
+      sourceId: opts.sourceId,
       slugPrefix: opts.slugPrefix,
       dryRun: true,
       force: opts.force,
-      // Note: the library doesn't support sourceId filter today; documented
-      // as a v0.30+ enhancement. CLI surfaces the param so the future
-      // refinement is non-breaking.
       maxRows: total > 0 ? total : undefined,
     });
     return {
@@ -130,6 +128,7 @@ export async function runReindexFrontmatter(
   }
 
   const r = await backfillEffectiveDate(engine, {
+    sourceId: opts.sourceId,
     slugPrefix: opts.slugPrefix,
     force: opts.force,
     fresh: true, // CLI is explicit; ignore checkpoint from prior orchestrator runs
