@@ -15,6 +15,7 @@ import {
   checkPackUpgradeAvailable,
   checkTypeProliferation,
   checkDanglingAliases,
+  runAllOnboardChecks,
 } from '../src/core/onboard/checks.ts';
 import { toOnboardRecommendation } from '../src/core/onboard/render.ts';
 import { _resetPackCacheForTests } from '../src/core/schema-pack/registry.ts';
@@ -110,6 +111,28 @@ describe('checkTypeProliferation (D16 pack-aware ratio)', () => {
     await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
       const result = await checkTypeProliferation(engine);
       expect(result.check.status).toBe('ok');
+    });
+  });
+
+  it('uses the source-scoped pack when a source is supplied', async () => {
+    await engine.setConfig('schema_pack', 'gbrain-base');
+    await engine.setConfig('schema_pack.source.default', 'gbrain-base-v2');
+    await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
+      const result = await checkTypeProliferation(engine, 'default');
+      expect(result.check.status).toBe('ok');
+      expect(result.check.message).toContain('pack declares 17');
+    });
+  });
+
+  it('threads source scope through the onboard aggregate', async () => {
+    await engine.setConfig('schema_pack', 'gbrain-base');
+    await engine.setConfig('schema_pack.source.default', 'gbrain-base-v2');
+    await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
+      const checks = await runAllOnboardChecks(engine, { sourceId: 'default' });
+      const byName = new Map(checks.map(result => [result.check.name, result.check]));
+
+      expect(byName.get('pack_upgrade_available')?.status).toBe('ok');
+      expect(byName.get('type_proliferation')?.message).toContain('pack declares 17');
     });
   });
 

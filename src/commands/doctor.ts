@@ -7707,7 +7707,7 @@ export async function buildChecks(
     // for embed_staleness, TABLESAMPLE on PG >50K for the coverage pair).
     progress.heartbeat('onboard_checks');
     const { runAllOnboardChecks } = await import('../core/onboard/checks.ts');
-    const onboardResults = await runAllOnboardChecks(engine);
+    const onboardResults = await runAllOnboardChecks(engine, { sourceId: orphanRatioSourceId });
     for (const r of onboardResults) checks.push(r.check);
   }
 

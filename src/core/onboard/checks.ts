@@ -358,6 +358,7 @@ export async function checkTakesCount(
  */
 export async function runAllOnboardChecks(
   engine: BrainEngine,
+  options: { sourceId?: string } = {},
 ): Promise<OnboardCheckResult[]> {
   return Promise.all([
     checkEmbedStaleness(engine),
@@ -365,8 +366,8 @@ export async function runAllOnboardChecks(
     checkTimelineCoverage(engine),
     checkTakesCount(engine),
     // v0.42 type-unification (T13-T15): 3 new checks added to onboard.
-    checkPackUpgradeAvailable(engine),
-    checkTypeProliferation(engine),
+    checkPackUpgradeAvailable(engine, options.sourceId),
+    checkTypeProliferation(engine, options.sourceId),
     checkDanglingAliases(engine),
   ]);
 }
@@ -374,6 +375,25 @@ export async function runAllOnboardChecks(
 // ===========================================================================
 // v0.42 Type Unification (T13-T15) — 3 onboard checks
 // ===========================================================================
+
+async function resolveOnboardActivePack(engine: BrainEngine, sourceId?: string) {
+  const { loadActivePack } = await import('../schema-pack/load-active.ts');
+  const { loadConfigFileOnly } = await import('../config.ts');
+  const [dbConfig, sourcePack] = await Promise.all([
+    engine.getConfig('schema_pack').catch(() => null),
+    sourceId ? engine.getConfig(`schema_pack.source.${sourceId}`).catch(() => null) : Promise.resolve(null),
+  ]);
+  const perSourceDb = sourceId && sourcePack
+    ? new Map([[sourceId, sourcePack]])
+    : undefined;
+  return loadActivePack({
+    cfg: loadConfigFileOnly(),
+    remote: false,
+    sourceId,
+    perSourceDb,
+    dbConfig: dbConfig ?? undefined,
+  }).catch(() => null);
+}
 
 /**
  * pack_upgrade_available: fires when the active schema pack has a successor
@@ -383,19 +403,11 @@ export async function runAllOnboardChecks(
  */
 export async function checkPackUpgradeAvailable(
   engine: BrainEngine,
+  sourceId?: string,
 ): Promise<OnboardCheckResult> {
   try {
-    const { loadActivePack, findPackSuccessors } = await import('../schema-pack/load-active.ts');
-    const { loadConfigFileOnly } = await import('../config.ts');
-    // Read the engine's DB-side schema_pack so a post-unify flip is visible
-    // here even before the file-plane config catches up. File-only config
-    // preserves tier-6 schema_pack without merging transient env/database state.
-    let dbConfig: string | undefined;
-    try {
-      dbConfig = (await engine.getConfig('schema_pack')) ?? undefined;
-    } catch { /* engine.config may not exist on very old brains */ }
-    const active = await loadActivePack({ cfg: loadConfigFileOnly(), remote: false, dbConfig })
-      .catch(() => null);
+    const { findPackSuccessors } = await import('../schema-pack/load-active.ts');
+    const active = await resolveOnboardActivePack(engine, sourceId);
     if (!active) {
       return {
         check: { name: 'pack_upgrade_available', status: 'ok', message: 'No active pack' },
@@ -460,24 +472,19 @@ export async function checkPackUpgradeAvailable(
  */
 export async function checkTypeProliferation(
   engine: BrainEngine,
+  sourceId?: string,
 ): Promise<OnboardCheckResult> {
   let declared = 15;  // fallback to gbrain-base-v2 default if pack unavailable
   try {
-    const { loadActivePack } = await import('../schema-pack/load-active.ts');
-    const { loadConfigFileOnly } = await import('../config.ts');
-    let dbConfig: string | undefined;
-    try {
-      dbConfig = (await engine.getConfig('schema_pack')) ?? undefined;
-    } catch { /* tolerate pre-config brains */ }
-    const active = await loadActivePack({ cfg: loadConfigFileOnly(), remote: false, dbConfig })
-      .catch(() => null);
+    const active = await resolveOnboardActivePack(engine, sourceId);
     if (active) declared = active.manifest.page_types.length;
   } catch {
     // Use fallback.
   }
   const n = await safeCount(
     engine,
-    `SELECT COUNT(DISTINCT type) AS count FROM pages WHERE deleted_at IS NULL AND type IS NOT NULL`,
+    `SELECT COUNT(DISTINCT type) AS count FROM pages WHERE deleted_at IS NULL AND type IS NOT NULL${sourceId ? ' AND source_id = $1' : ''}`,
+    sourceId ? [sourceId] : [],
   );
   const warn = declared + 5;
   const fail = declared * 2;
