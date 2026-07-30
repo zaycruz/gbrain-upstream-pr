@@ -268,6 +268,18 @@ describe('doctor command', () => {
     expect(block).not.toMatch(/source_id\s*=\s*'default'/);
   });
 
+  test('effective-date health validates fallback candidates with the canonical computation', async () => {
+    const source = await Bun.file(new URL('../src/commands/doctor.ts', import.meta.url)).text();
+    const block = source.slice(
+      source.indexOf('// 11a-2. effective_date_health'),
+      source.indexOf('// 11a-3.', source.indexOf('// 11a-2. effective_date_health')),
+    );
+    expect(block).toContain("kind !== 'fallback_candidate'");
+    expect(block).toContain('computeEffectiveDate({');
+    expect(block).toContain("source !== 'fallback'");
+    expect(block).not.toContain("fallback_with_fm_date' AS kind");
+  });
+
   // v0.18 RLS hardening — regression guards for PR #336 + schema backfill.
   // These are structural assertions on the source string so a silent revert
   // of the severity or the IN-filter removal fails loudly without a live DB.
