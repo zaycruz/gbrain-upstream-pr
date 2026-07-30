@@ -10,6 +10,7 @@ import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { resetPgliteState } from './helpers/reset-pglite.ts';
 import { runUnifyTypes } from '../src/core/schema-pack/unify-types-handler.ts';
 import { _resetPackCacheForTests } from '../src/core/schema-pack/registry.ts';
+import { loadConfigFileOnly } from '../src/core/config.ts';
 
 let engine: PGLiteEngine;
 
@@ -28,10 +29,10 @@ beforeEach(async () => {
   _resetPackCacheForTests();
 });
 
-function ctxOf() {
+function ctxOf(config: Record<string, unknown> = {}) {
   return {
     engine,
-    config: {},
+    config,
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     dryRun: false,
     remote: false,
@@ -135,6 +136,19 @@ describe('runUnifyTypes', () => {
       );
       expect(rows[0].type).toBe('note');
       expect(rows[0].frontmatter.legacy_type).toBe('some-weird-type');
+    });
+
+    it('uses the caller pack and scopes activation to the requested source', async () => {
+      const filePackBefore = loadConfigFileOnly()?.schema_pack;
+      const result = await runUnifyTypes(ctxOf({ schema_pack: 'gbrain-base-v2' }), {
+        target_pack: 'gbrain-base-v2',
+        sourceId: 'tenant-a',
+        apply: true,
+      });
+      expect(result.pack_identity_before).toContain('gbrain-base-v2');
+      expect(await engine.getConfig('schema_pack.source.tenant-a')).toBe('gbrain-base-v2');
+      expect(await engine.getConfig('schema_pack')).toBeNull();
+      expect(loadConfigFileOnly()?.schema_pack).toBe(filePackBefore);
     });
   });
 
