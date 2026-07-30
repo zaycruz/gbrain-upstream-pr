@@ -1,6 +1,7 @@
 import type { BrainEngine } from '../core/engine.ts';
 import { REPAIR_SOURCE_CONFIG_SQL } from '../core/source-config-sql.ts';
 import { setCliExitVerdict } from '../core/cli-force-exit.ts';
+import { parseDateLoose } from '../core/effective-date.ts';
 import * as db from '../core/db.ts';
 import { LATEST_VERSION, getIdleBlockers } from '../core/migrate.ts';
 import { checkResolvable } from '../core/check-resolvable.ts';
@@ -7338,26 +7339,33 @@ export async function buildChecks(
   // frontmatter JSONB and is the slow path.
   progress.heartbeat('effective_date_health');
   try {
-    const result = await engine.executeRaw<{ kind: string; count: string }>(
+    const result = await engine.executeRaw<{
+      kind: string;
+      count?: string;
+      frontmatter?: Record<string, unknown>;
+    }>(
       `WITH sample AS (
          SELECT slug, frontmatter, effective_date, effective_date_source
            FROM pages
           ORDER BY id DESC
           LIMIT 1000
        )
-       SELECT 'fallback_with_fm_date' AS kind, COUNT(*)::text AS count
+       SELECT 'fallback_candidate' AS kind, NULL::text AS count, frontmatter
          FROM sample
         WHERE effective_date_source = 'fallback'
           AND (frontmatter ? 'event_date' OR frontmatter ? 'date' OR frontmatter ? 'published')
        UNION ALL
-       SELECT 'future_dated', COUNT(*)::text FROM sample
+       SELECT 'future_dated', COUNT(*)::text, NULL::jsonb FROM sample
         WHERE effective_date IS NOT NULL AND effective_date > NOW() + INTERVAL '1 year'
        UNION ALL
-       SELECT 'pre_1990', COUNT(*)::text FROM sample
+       SELECT 'pre_1990', COUNT(*)::text, NULL::jsonb FROM sample
         WHERE effective_date IS NOT NULL AND effective_date < TIMESTAMPTZ '1990-01-01'`,
     );
-    const counts = new Map(result.map(r => [r.kind, Number(r.count)]));
-    const fallbackWithFm = counts.get('fallback_with_fm_date') ?? 0;
+    const fallbackWithFm = result.filter(
+      row => row.kind === 'fallback_candidate'
+        && ['event_date', 'date', 'published'].some(key => parseDateLoose(row.frontmatter?.[key]) !== null),
+    ).length;
+    const counts = new Map(result.map(r => [r.kind, Number(r.count ?? 0)]));
     const future = counts.get('future_dated') ?? 0;
     const pre1990 = counts.get('pre_1990') ?? 0;
     if (fallbackWithFm > 0 || future > 0 || pre1990 > 0) {
