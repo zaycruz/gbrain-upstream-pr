@@ -96,6 +96,29 @@ describe('loadConfigWithEngine (Phase 4 / F3)', () => {
     expect(merged?.embedding_image_ocr).toBe(true);
   });
 
+  test('DB chat fallback chain fills in when file/env did not set it', async () => {
+    const base: GBrainConfig = { engine: 'pglite' };
+    const engine = makeEngine({
+      chat_fallback_chain: '["openrouter:deepseek/deepseek-v4-pro", "openrouter:openai/gpt-5"]',
+    });
+    const merged = await loadConfigWithEngine(engine, base);
+    expect(merged?.chat_fallback_chain).toEqual([
+      'openrouter:deepseek/deepseek-v4-pro',
+      'openrouter:openai/gpt-5',
+    ]);
+  });
+
+  test('file/env chat fallback chain wins over the DB value', async () => {
+    const base: GBrainConfig = {
+      engine: 'pglite',
+      chat_fallback_chain: ['openrouter:openai/gpt-5.6-terra'],
+    };
+    const engine = makeEngine({
+      chat_fallback_chain: 'openrouter:deepseek/deepseek-v4-pro',
+    });
+    const merged = await loadConfigWithEngine(engine, base);
+    expect(merged?.chat_fallback_chain).toEqual(['openrouter:openai/gpt-5.6-terra']);
+  });
   test('DB provider_base_urls.<provider> fills the gateway base URL map', async () => {
     const base: GBrainConfig = { engine: 'pglite' };
     const engine = makeEngine({

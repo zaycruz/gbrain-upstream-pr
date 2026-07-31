@@ -82,6 +82,13 @@ export const CANONICAL_PRICING: Record<string, ModelPricing> = {
   // slot A from the --max-usd pre-flight and est_cost_usd audit rows.
   'openai:gpt-5.2':                       { input:  1.25, output: 10.00 },
   'openai:gpt-5.5':                       { input:  4.00, output: 16.00 },
+  // OpenRouter exact-route prices. OpenRouter model IDs include the vendor
+  // prefix, so they are explicit keys rather than an unsafe inner-vendor
+  // fallback in canonicalLookup().
+  'openrouter:openai/gpt-5.6-terra':          { input: 1.0000, output: 6.0000 },
+  'openrouter:openai/gpt-5':                 { input: 1.2500, output: 10.0000 },
+  'openrouter:deepseek/deepseek-v4-pro':     { input: 0.4350, output: 0.8700 },
+  'openrouter:deepseek/deepseek-chat':       { input: 0.2574, output: 1.0287 },
 
   // ── Google ─────────────────────────────────────────────────────────────
   'google:gemini-1.5-pro':                { input:  1.25, output:  5.00 },

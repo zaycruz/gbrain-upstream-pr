@@ -3280,6 +3280,7 @@ export function toAISDKTools(tools: ChatToolDef[] | undefined): Record<string, a
   }, {} as Record<string, any>);
 }
 
+
 async function chatAttempt(opts: ChatOpts): Promise<ChatResult> {
   const tracker = __budgetStore.getStore() ?? null;
   const modelStrEarly = opts.model ?? getChatModel();
@@ -3604,7 +3605,6 @@ function createChatFallbackFailure(
   return new AITransientError(message, cause);
 }
 
-
 /**
  * Run one chat request across an ordered model chain.
  *
@@ -3675,7 +3675,6 @@ export async function chatWithFallback(
   if (failures.length > 1) throw createChatFallbackFailure(failures);
   throw lastError ?? new Error('No chat model is available.');
 }
-
 // ---- Tool loop (v0.38 — D11 + D6/D7 gateway-native subagent path) ----
 
 /**
