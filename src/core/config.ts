@@ -675,9 +675,11 @@ export function loadConfig(): GBrainConfig | null {
  * Precedence: env > file > DB > defaults. Env stays the operator escape hatch;
  * file is the durable per-machine config; DB is the user-mutable runtime knob.
  *
- * Today only the v0.27.1 multimodal flags participate in DB-merge. Existing
- * fields (embedding_model, etc.) keep their file/env-only loading because they
- * size the schema and must be stable across engine connect.
+ * Today, user-mutable runtime fields that do not size the schema participate
+ * selectively in the DB merge. This includes multimodal flags, provider base
+ * URLs, embedding-column routing, content sanity, dream settings, and the
+ * chat fallback chain. Existing model defaults keep their established
+ * file/env or model-config resolution paths.
  */
 export async function loadConfigWithEngine(
   engine: {
@@ -720,6 +722,22 @@ export async function loadConfigWithEngine(
       return undefined;
     }
   }
+  async function dbStringList(key: string): Promise<string[] | undefined> {
+    const raw = await dbStr(key);
+    if (raw === undefined) return undefined;
+    let values: unknown;
+    try {
+      values = JSON.parse(raw);
+    } catch {
+      values = raw.split(',');
+    }
+    if (!Array.isArray(values)) return undefined;
+    const cleaned = values
+      .filter((value): value is string => typeof value === 'string')
+      .map(value => value.trim())
+      .filter(Boolean);
+    return cleaned.length > 0 ? cleaned : undefined;
+  }
   async function dbPrefixMap(prefix: string): Promise<Record<string, string> | undefined> {
     if (typeof engine.listConfigKeys !== 'function') return undefined;
     let keys: string[];
@@ -740,6 +758,8 @@ export async function loadConfigWithEngine(
     return Object.keys(out).length > 0 ? out : undefined;
   }
 
+
+  const dbChatFallbackChain = await dbStringList('chat_fallback_chain');
   const dbMultimodal = await dbBool('embedding_multimodal');
   const dbMultimodalModel = await dbStr('embedding_multimodal_model');
   const dbOcr = await dbBool('embedding_image_ocr');
@@ -752,10 +772,13 @@ export async function loadConfigWithEngine(
   const dbEmbeddingColumns = await dbStr('embedding_columns');
   const dbSearchEmbeddingColumn = await dbStr('search_embedding_column');
 
-  // DB applies only when env did NOT win. Env presence is detected by the
-  // sync loadConfig() already setting the field. For each flag, prefer the
-  // existing fileConfig value when defined; otherwise fall through to DB.
+  // DB applies only when env/file did NOT win. Env presence is detected by
+  // the sync loadConfig() already setting the field. For each flag, prefer
+  // the existing fileConfig value when defined; otherwise fall through to DB.
   const merged: GBrainConfig = { ...fileConfig };
+  if (merged.chat_fallback_chain === undefined && dbChatFallbackChain !== undefined) {
+    merged.chat_fallback_chain = dbChatFallbackChain;
+  }
   if (merged.embedding_multimodal === undefined && dbMultimodal !== undefined) {
     merged.embedding_multimodal = dbMultimodal;
   }
