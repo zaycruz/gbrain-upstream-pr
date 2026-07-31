@@ -6365,21 +6365,25 @@ export async function buildChecks(
       // source can legitimately emit many WARN events (oversize/markup-heavy)
       // while remaining searchable and intentionally flagged. Fail on hard
       // dispositions (content actually blocked or hidden); warn on soft
-      // dispositions or volume. This keeps doctor from treating expected
-      // code-corpus telemetry as an unhealthy brain.
+      // dispositions (embed skipped or agent-flagged). Warn-only telemetry
+      // remains visible in the message but does not lower doctor health.
+      //
+      // This keeps doctor from treating expected code-corpus telemetry as an
+      // unhealthy brain while preserving a signal for actual remediation.
       //
       // v0.42 renamed the hard path: a rejected page emits `reject` and a
-      // quarantined (hidden) junk page emits `quarantine`; `hard_block` is now
-      // only the pre-v0.42 legacy alias. Counting `hard_block` alone let fresh
-      // junk-ingest evidence (`reject`/`quarantine`) clear as `ok` whenever
-      // fewer than 10 events landed. `flag` is a warn disposition (still
-      // searchable, agent warned on retrieval), so it joins `soft_block`.
+      // quarantined (hidden) junk page emits `quarantine`; `hard_block` is
+      // now only the pre-v0.42 legacy alias.
+      // Counting `hard_block` alone lets fresh junk-ingest evidence
+      // (`reject`/`quarantine`) clear as `ok`. `flag` is a warn disposition
+      // (still searchable, agent warned on retrieval), so it joins
+      // `soft_block`.
       const hardBlocked =
         summary.by_type.hard_block + summary.by_type.reject + summary.by_type.quarantine;
       const softBlocked = summary.by_type.soft_block + summary.by_type.flag;
       const status: 'ok' | 'warn' | 'fail' =
         hardBlocked > 0 ? 'fail' :
-          (softBlocked > 0 || events.length >= 10) ? 'warn' : 'ok';
+          (softBlocked > 0) ? 'warn' : 'ok';
       checks.push({
         name: 'content_sanity_audit_recent',
         status,

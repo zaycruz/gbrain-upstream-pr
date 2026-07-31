@@ -1013,6 +1013,18 @@ describe('supervisor crash classifier wiring (v0.35.x)', () => {
   });
 });
 
+// Content-sanity audit WARN rows are informational. Only dispositions that
+// skip embeddings or hide content should lower doctor health.
+describe('content_sanity_audit_recent status policy', () => {
+  test('warn-only volume does not become a health warning', async () => {
+    const source = await Bun.file(new URL('../src/commands/doctor.ts', import.meta.url)).text();
+    expect(source).toContain('Warn-only telemetry');
+    expect(source).toMatch(/hardBlocked\s*>\s*0\s*\?\s*'fail'/);
+    expect(source).toMatch(/\(softBlocked\s*>\s*0\)\s*\?\s*'warn'\s*:\s*'ok'/);
+    expect(source).not.toMatch(/softBlocked\s*>\s*0\)\s*\?\s*'warn'\s*:\s*events\.length\s*>=\s*10/);
+  });
+});
+
 // v0.34.5 stub-guard observability tests (from v0.35.4.0). Doctor surfaces
 // the 24h fire count for the resolver-stub-guard. WARN at >10 hits is the
 // signal that prefix-expansion in resolveEntitySlug is missing a case.
