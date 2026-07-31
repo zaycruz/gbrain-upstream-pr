@@ -69,6 +69,29 @@ describe('shouldExclude', () => {
   test('excludes deny-prefix: openclaw/config/', () => {
     expect(shouldExclude('openclaw/config/agent')).toBe(true);
   });
+  test('excludes runtime and curation page families', () => {
+    for (const slug of [
+      '.archive/old-report',
+      '.codex/review-readiness',
+      '.demos/example/readme',
+      '.labs/experiment',
+      'agents/signal/memory/runs/2026-07-31-1',
+      'atoms/2026-07-31/insight',
+      'brain-ops/health-report',
+      'docs/plans/example',
+      'extracts/2026-07-31/round',
+      'health/brain-health-2026-07-31',
+    ]) {
+      expect(shouldExclude(slug)).toBe(true);
+    }
+  });
+
+  test('keeps inbox and durable content pages in the orphan signal', () => {
+    expect(shouldExclude('inbox/new-capture')).toBe(false);
+    expect(shouldExclude('concepts/shared/current_priorities')).toBe(false);
+    expect(shouldExclude('people/jane-doe')).toBe(false);
+  });
+
 
   test('excludes first-segment: scratch', () => {
     expect(shouldExclude('scratch/idea-dump')).toBe(true);

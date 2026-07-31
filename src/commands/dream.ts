@@ -30,7 +30,7 @@ import {
   type CyclePhase,
   type CycleReport,
 } from '../core/cycle.ts';
-import { resolveSourceId } from '../core/source-resolver.ts';
+import { resolveSourceWithTier } from '../core/source-resolver.ts';
 import { fetchSource } from '../core/sources-load.ts';
 import { existsSync } from 'fs';
 import { resolve } from 'node:path';
@@ -272,13 +272,12 @@ async function resolveBrainDir(
     if (src?.local_path && existsSync(src.local_path)) {
       return resolve(src.local_path);
     }
-    // Explicit --source whose checkout isn't on disk → DB-only (skip FS phases).
-    // Do NOT fall through to the global sync.repo_path below: that path belongs
-    // to the default/unscoped brain, and running FS phases (sync/lint/extract)
-    // against it while the DB phases AND the last_full_cycle_at stamp target
-    // <resolvedSourceId> would mix scopes — syncing one source's checkout while
-    // marking a different source fresh. (codex P1 review finding.)
-    return null;
+    // A non-default source without a checkout must stay DB-only. Falling
+    // through to sync.repo_path would run filesystem phases for the default
+    // source while stamping this different source as fresh.
+    if (resolvedSourceId !== 'default') return null;
+    // The seeded default source owns the legacy sync.repo_path setting, so
+    // retain that compatibility path when its source row has no local_path.
   }
 
   if (engine) {
@@ -517,26 +516,26 @@ export async function runDream(engine: BrainEngine | null, args: string[]): Prom
     return;
   }
 
-  // v0.41.13: --source <id> resolution. Three guards in order:
-  //   1. engine null → exit 1 (the writeback in cycle.ts requires a
-  //      DB connection; without engine we'd silently fail the same way
-  //      PR #1559 was created to fix)
-  //   2. resolveSourceId throws on unknown id → typed-error catch
-  //      surfaces clean message; non-resolver throws propagate
-  //   3. archived source → exit 1 with restore hint (writing
-  //      last_full_cycle_at to an archived source would mask data
-  //      staleness when the source is later restored)
+  // v0.41.13: resolve the canonical source for every connected cycle. An
+  // explicit --source still wins, while a bare `gbrain dream` now follows
+  // the same resolver chain as the other source-aware CLI commands instead
+  // of silently running DB phases against the seeded `default` source.
   let resolvedSourceId: string | undefined;
-  if (opts.source !== null) {
-    if (engine === null) {
-      console.error(
-        'gbrain dream --source <id> requires a connected brain ' +
-        '(no engine available); omit --source or run `gbrain init` first',
-      );
-      process.exit(1);
-    }
+  if (engine !== null) {
     try {
-      resolvedSourceId = await resolveSourceId(engine, opts.source);
+      const resolved = await resolveSourceWithTier(engine, opts.source);
+      if (opts.source === null && resolved.tier === 'seed_default') {
+        const sources = await engine.listAllSources();
+        if (sources.some((source) => source.id !== 'default')) {
+          console.error(
+            'gbrain dream cannot choose a source safely: resolver fell back to ' +
+            'the seeded `default` source while other sources are registered; ' +
+            'pass `--source <id>` or set `sources.default`',
+          );
+          process.exit(1);
+        }
+      }
+      resolvedSourceId = resolved.source_id;
     } catch (e) {
       if (isResolverUserError(e)) {
         console.error((e as Error).message);
@@ -558,6 +557,12 @@ export async function runDream(engine: BrainEngine | null, args: string[]): Prom
       );
       process.exit(1);
     }
+  } else if (opts.source !== null) {
+    console.error(
+      'gbrain dream --source <id> requires a connected brain ' +
+      '(no engine available); omit --source or run `gbrain init` first',
+    );
+    process.exit(1);
   }
 
   const brainDir = await resolveBrainDir(engine, opts.dir, resolvedSourceId);

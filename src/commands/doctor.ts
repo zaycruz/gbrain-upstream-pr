@@ -52,6 +52,7 @@ import { isUndefinedColumnError } from '../core/utils.ts';
 import { resolveHardExcludes, DEFAULT_HARD_EXCLUDES } from '../core/search/source-boost.ts';
 import { escapeLikePattern, buildVisibilityClause } from '../core/search/sql-ranking.ts';
 
+import { canonicalEntitySlugPredicate } from '../core/entity-page-policy.ts';
 export interface Check {
   name: string;
   status: 'ok' | 'warn' | 'fail';
@@ -5778,18 +5779,18 @@ export async function buildChecks(
   try {
     const health = await engine.getHealth();
     const entityCount = (await engine.executeRaw<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM pages WHERE type IN ('entity', 'person', 'company', 'organization')",
+      `SELECT COUNT(*)::int AS count FROM pages WHERE type IN ('entity', 'person', 'company', 'organization') AND ${canonicalEntitySlugPredicate()}`,
     ))[0]?.count ?? 0;
 
-    // Compute coverage against eligible entities only — exclude test fixtures
-    // (`tools/gbrain/test/*`) and template stubs (`templates/new-person`) so
-    // that brains seeded only with code sources don't get spurious warnings
-    // about missing link/timeline coverage on pages that are test fixtures, not
-    // real knowledge entities.
+    // Compute coverage against eligible canonical entities only — exclude
+    // test fixtures and agent support-note pages. Support notes retain an
+    // entity type for routing, but their timeline belongs to the canonical
+    // entity page referenced by frontmatter.entity_slug.
     const eligibleStats = (await engine.executeRaw<{ entities: number; linked_from: number; timeline: number }>(
       `WITH eligible AS (
         SELECT id FROM pages
         WHERE type IN ('entity','person','company','organization')
+          AND ${canonicalEntitySlugPredicate()}
           AND slug NOT LIKE 'tools/gbrain/test/%'
           AND slug <> 'templates/new-person'
       )

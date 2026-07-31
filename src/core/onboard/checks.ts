@@ -18,6 +18,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { RemediationStep } from '../remediation-step.ts';
 import { makeRemediationStep } from '../remediation-step.ts';
+import { canonicalEntitySlugPredicate } from '../entity-page-policy.ts';
 
 /** Shared shape returned by all four checks. */
 export interface OnboardCheckResult {
@@ -215,6 +216,7 @@ export async function checkTimelineCoverage(
     engine,
     `SELECT COUNT(*) AS count FROM pages
        WHERE type IN ('person', 'company', 'organization', 'entity')
+         AND ${canonicalEntitySlugPredicate()}
          AND deleted_at IS NULL`,
   );
 
@@ -236,6 +238,7 @@ export async function checkTimelineCoverage(
     `SELECT COUNT(*) AS count FROM (
        SELECT p.id FROM pages p ${sampleClause}
        WHERE p.type IN ('person', 'company', 'organization', 'entity')
+         AND ${canonicalEntitySlugPredicate('p')}
          AND p.deleted_at IS NULL
          AND EXISTS (SELECT 1 FROM timeline_entries t WHERE t.page_id = p.id)
      ) sub`,

@@ -54,6 +54,30 @@ const DENY_PREFIXES = [
 
 /** First slug segments where no inbound links is expected */
 const FIRST_SEGMENT_EXCLUSIONS = new Set(['scratch', 'thoughts', 'catalog', 'entities']);
+/**
+ * Page families owned by runtime and curation pipelines, or by the
+ * documentation surface, where inbound links are optional by design.
+ *
+ * Keep durable entity and concept pages outside this list. These prefixes
+ * match the archive/runtime boundary used by the brain search policy.
+ */
+const OPTIONAL_INBOUND_PREFIXES = [
+  '.archive/',
+  '.codex/',
+  '.demos/',
+  '.labs/',
+  'agents/',
+  'atoms/',
+  'brain-ops/',
+  'docs/',
+  'extracts/',
+  'health/',
+];
+
+function hasOptionalInbound(slug: string): boolean {
+  return OPTIONAL_INBOUND_PREFIXES.some(prefix => slug.startsWith(prefix));
+}
+
 
 // --- Filter logic ---
 
@@ -77,6 +101,10 @@ export function shouldExclude(slug: string): boolean {
   for (const prefix of DENY_PREFIXES) {
     if (slug.startsWith(prefix)) return true;
   }
+
+  // Runtime, curation, archive, and documentation pages do not require
+  // inbound links to remain discoverable by their canonical slug.
+  if (hasOptionalInbound(slug)) return true;
 
   // First-segment exclusions
   const firstSegment = slug.split('/')[0];

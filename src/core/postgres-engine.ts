@@ -65,6 +65,7 @@ import { resolveBoostMap, resolveHardExcludes } from './search/source-boost.ts';
 import { buildSourceFactorCase, buildHardExcludeClause, buildVisibilityClause, buildRecencyComponentSql, buildBestPerPagePoolCte } from './search/sql-ranking.ts';
 import { DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMENSIONS } from './ai/defaults.ts';
 import { DELETE_BATCH_SIZE } from './engine-constants.ts';
+import { canonicalEntitySlugPredicate } from './entity-page-policy.ts';
 
 function escapeSqlStringLiteral(value: string): string {
   return value.replace(/'/g, "''");
@@ -4998,7 +4999,11 @@ export class PostgresEngine implements BrainEngine {
         SELECT id, slug, type, updated_at FROM pages WHERE deleted_at IS NULL
       ),
       entity_pages AS (
-        SELECT id, slug FROM active_pages WHERE type IN ('person', 'company')
+        -- /_notes pages are agent-maintained support notes for an entity,
+        -- not canonical entity records and do not need their own timeline.
+        SELECT id, slug FROM active_pages
+        WHERE type IN ('person', 'company')
+          AND ${sql.unsafe(canonicalEntitySlugPredicate())}
       )
       SELECT
         (SELECT count(*) FROM active_pages) as page_count,

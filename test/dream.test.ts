@@ -447,15 +447,34 @@ describe('runDream — --source / --source-id (v0.41.13)', () => {
     expect(writtenMs).toBeLessThanOrEqual(Date.now() + 1000);
   }, 60_000);
 
-  // ─── Back-compat: bare `gbrain dream` does NOT write per-source stamp ─
+  // ─── Bare cycles follow the configured canonical source ─────────────
 
-  test('gbrain dream (no --source) leaves all sources untouched (back-compat regression)', async () => {
+  test('gbrain dream (no --source) follows sources.default and stamps only it', async () => {
     await seedSource('alpha');
     await seedSource('beta');
+    await engine.setConfig('sources.default', 'alpha');
     const report = await runDream(engine, ['--dir', repo, '--phase', 'lint', '--json']);
     expect(report).toBeTruthy();
+    expect(await readLastFullCycleAt('alpha')).not.toBeNull();
+    expect(await readLastFullCycleAt('beta')).toBeNull();
+  }, 60_000);
+
+  test('bare dream refuses the seeded default when other sources exist', async () => {
+    await seedSource('alpha');
+    await seedSource('beta');
+    const exitSpy = spyOn(process, 'exit').mockImplementation(() => { throw new Error('EXIT'); });
+    const errSpy = spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await runDream(engine, ['--dir', repo, '--phase', 'lint', '--json']);
+    } catch (e: any) {
+      expect(e.message).toBe('EXIT');
+    }
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errSpy.mock.calls.flat().join(' ')).toMatch(/cannot choose a source safely/);
     expect(await readLastFullCycleAt('alpha')).toBeNull();
     expect(await readLastFullCycleAt('beta')).toBeNull();
+    exitSpy.mockRestore();
+    errSpy.mockRestore();
   }, 60_000);
 
   // ─── --source-id alias equivalence (D3) ─────────────────────────────

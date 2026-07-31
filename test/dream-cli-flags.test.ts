@@ -76,9 +76,9 @@ describe('dream CLI flag wiring', () => {
       expect(dreamSrc).toMatch(/sourceId:\s*resolvedSourceId/);
     });
 
-    test('imports resolveSourceId from canonical source-resolver helper', () => {
+    test('imports the canonical source resolver with tier information', () => {
       expect(dreamSrc).toContain("from '../core/source-resolver.ts'");
-      expect(dreamSrc).toContain('resolveSourceId');
+      expect(dreamSrc).toContain('resolveSourceWithTier');
     });
 
     test('declares isResolverUserError predicate for typed-error catch (T3 from eng review)', () => {

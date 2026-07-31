@@ -17,6 +17,7 @@
 // misattribute deltas to the wrong remediation.
 
 import type { BrainEngine } from './../engine.ts';
+import { canonicalEntitySlugPredicate } from '../entity-page-policy.ts';
 
 export type MetricName =
   | 'orphan_count'
@@ -66,6 +67,7 @@ export async function captureMetric(
         const total = await engine.executeRaw<{ count: string | number }>(
           `SELECT COUNT(*) AS count FROM pages
              WHERE type IN ('person', 'company', 'organization', 'entity')
+               AND ${canonicalEntitySlugPredicate()}
                AND deleted_at IS NULL`,
         );
         const totalN = total.length > 0 ? Number(total[0].count) : 0;
@@ -74,6 +76,7 @@ export async function captureMetric(
           const withLinks = await engine.executeRaw<{ count: string | number }>(
             `SELECT COUNT(*) AS count FROM pages p
                WHERE p.type IN ('person', 'company', 'organization', 'entity')
+                 AND ${canonicalEntitySlugPredicate('p')}
                  AND p.deleted_at IS NULL
                  AND EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = p.id)`,
           );
@@ -82,6 +85,7 @@ export async function captureMetric(
         const withTimeline = await engine.executeRaw<{ count: string | number }>(
           `SELECT COUNT(*) AS count FROM pages p
              WHERE p.type IN ('person', 'company', 'organization', 'entity')
+               AND ${canonicalEntitySlugPredicate('p')}
                AND p.deleted_at IS NULL
                AND EXISTS (SELECT 1 FROM timeline_entries t WHERE t.page_id = p.id)`,
         );

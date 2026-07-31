@@ -63,6 +63,7 @@ import {
   EmbeddingColumnNotRegisteredError,
 } from './search/embedding-column.ts';
 import { hasCJK, escapeLikePattern } from './cjk.ts';
+import { canonicalEntitySlugPredicate } from './entity-page-policy.ts';
 
 type PGLiteDB = PGlite;
 
@@ -4993,7 +4994,11 @@ export class PGLiteEngine implements BrainEngine {
         SELECT id, slug, type, updated_at FROM pages WHERE deleted_at IS NULL
       ),
       entity_pages AS (
-        SELECT id, slug FROM active_pages WHERE type IN ('person', 'company')
+        -- /_notes pages are agent-maintained support notes for an entity,
+        -- not canonical entity records and do not need their own timeline.
+        SELECT id, slug FROM active_pages
+        WHERE type IN ('person', 'company')
+          AND ${canonicalEntitySlugPredicate()}
       )
       SELECT
         (SELECT count(*) FROM active_pages) as page_count,
