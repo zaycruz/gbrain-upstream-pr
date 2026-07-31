@@ -48,11 +48,62 @@ import type { BrainEngine } from '../engine.ts';
 import type { PhaseResult } from '../cycle.ts';
 import type { GBrainConfig } from '../config.ts';
 import type { ProgressReporter } from '../progress.ts';
-import { chat as gatewayChat } from '../ai/gateway.ts';
+import { chatWithFallback, chat as gatewayChat, withBudgetTracker } from '../ai/gateway.ts';
+import { BudgetExhausted, BudgetTracker } from '../budget/budget-tracker.ts';
 import { writeReceipt } from '../extract/receipt-writer.ts';
 import { upsertExtractRollup } from '../extract/rollup-writer.ts';
 
 const DEFAULT_BUDGET_USD = 0.3;
+const DEFAULT_EXTRACT_ATOMS_MODEL = 'anthropic:claude-haiku-4-5';
+
+function configuredModelList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .filter((item): item is string => typeof item === 'string')
+      .map(item => item.trim())
+      .filter(Boolean);
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) return [];
+  const raw = value.trim();
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (Array.isArray(parsed)) return configuredModelList(parsed);
+  } catch {
+    // Config values may be stored as comma-separated strings.
+  }
+  return raw.split(',').map(item => item.trim()).filter(Boolean);
+}
+
+async function resolveExtractionModelChain(
+  engine: BrainEngine,
+  primary: string,
+  loadConfig?: () => GBrainConfig | Promise<GBrainConfig | null> | null,
+): Promise<string[]> {
+  const chain = [primary];
+  try {
+    // Read merged file/env config first so daemon and shell invocations use
+    // the same fallback policy. The DB read below preserves the existing
+    // runtime override path for keys not yet merged by loadConfigWithEngine.
+    const { loadConfigWithEngine } = await import('../config.ts');
+    const merged = loadConfig
+      ? await loadConfig()
+      : await loadConfigWithEngine(engine);
+    const configuredFallbacks = configuredModelList(merged?.chat_fallback_chain);
+    if (configuredFallbacks.length > 0) {
+      return [...new Set([...chain, ...configuredFallbacks])];
+    }
+    const dbFallbacks = configuredModelList(await engine.getConfig('chat_fallback_chain'));
+    if (dbFallbacks.length > 0) {
+      return [...new Set([...chain, ...dbFallbacks])];
+    }
+    const defaultModel = configuredModelList(merged?.chat_model)[0]
+      ?? configuredModelList(await engine.getConfig('models.default'))[0];
+    if (defaultModel) chain.push(defaultModel);
+  } catch {
+    // Keep the primary model when config lookup is unavailable.
+  }
+  return [...new Set(chain)];
+}
 
 // v0.42+ TODO: read atom_type enum from active pack manifest at runtime.
 const ATOM_TYPES = [
@@ -446,7 +497,7 @@ export async function runPhaseExtractAtoms(
     };
   }
 
-  // 4. Per work-item: extract atoms via Haiku
+  // 4. Per work-item: extract atoms via the configured model.
   let totalAtomsExtracted = 0;
   let transcriptsProcessed = 0;
   let pagesProcessed = 0;
@@ -454,7 +505,27 @@ export async function runPhaseExtractAtoms(
   let pagesSkipped = 0;
   const failures: Array<{ source: string; error: string }> = [];
   let estimatedSpendUsd = 0;
-  const budgetCap = DEFAULT_BUDGET_USD;
+  let extractModel = DEFAULT_EXTRACT_ATOMS_MODEL;
+  let budgetCap = DEFAULT_BUDGET_USD;
+  try {
+    const configuredModel = await engine.getConfig('models.dream.extract_atoms');
+    if (typeof configuredModel === 'string' && configuredModel.trim()) extractModel = configuredModel.trim();
+    const configuredBudget = await engine.getConfig('cycle.extract_atoms.budget_usd');
+    if (configuredBudget) {
+      const n = Number(configuredBudget);
+      if (Number.isFinite(n) && n > 0) budgetCap = n;
+    }
+  } catch {
+    // Keep safe defaults: Haiku + $0.30.
+  }
+  const extractModelChain = await resolveExtractionModelChain(engine, extractModel, opts._loadConfig);
+  const failedExtractModels = new Set<string>();
+  const transientExtractFailures = new Map<string, number>();
+  let budgetExhausted = false;
+  const budgetTracker = new BudgetTracker({
+    maxCostUsd: budgetCap,
+    label: 'cycle.extract_atoms',
+  });
 
   // v0.41.19.0 (T3): throttled yield helper. Fires `opts.yieldDuringPhase`
   // every 30s. Cycle.ts threads `buildYieldDuringPhase(lock, outer)` so
@@ -481,7 +552,7 @@ export async function runPhaseExtractAtoms(
 
   for (const item of work) {
     await maybeYield();
-    if (estimatedSpendUsd >= budgetCap) {
+    if (budgetExhausted || budgetTracker.totalSpent >= budgetCap) {
       if (item.kind === 'transcript') transcriptsSkipped++;
       else pagesSkipped++;
       continue;
@@ -489,16 +560,27 @@ export async function runPhaseExtractAtoms(
 
     const originLabel = item.kind === 'transcript' ? item.filePath : item.slug;
     try {
-      const result = await chat({
-        system: EXTRACT_PROMPT,
-        messages: [
-          {
-            role: 'user',
-            content: `Source: ${originLabel}\n\n---\n\n${item.content.slice(0, 50_000)}`,
-          },
-        ],
-        maxTokens: 2000,
-      });
+      const result = await withBudgetTracker(
+        budgetTracker,
+        () => chatWithFallback({
+          model: extractModel,
+          system: EXTRACT_PROMPT,
+          messages: [
+            {
+              role: 'user',
+              content: `Source: ${originLabel}\n\n---\n\n${item.content.slice(0, 50_000)}`,
+            },
+          ],
+          maxTokens: 4096,
+        }, {
+          modelChain: extractModelChain,
+          fallbackOnConfigError: true,
+          skipModels: failedExtractModels,
+          transientFailures: transientExtractFailures,
+          maxTransientFailures: 2,
+          ...(opts._chat ? { call: chat } : {}),
+        }),
+      );
       // Post-await yield: closes the "long LLM call past TTL" hazard
       // codex flagged. The 30s throttle inside maybeYield bounds the
       // actual refresh rate so this is cheap when calls are fast.
@@ -558,6 +640,12 @@ export async function runPhaseExtractAtoms(
       // Reporter rate-limits to ~1 line/sec; safe to tick every iter.
       opts.progress?.tick(1, `${totalAtomsExtracted} atoms / ${duplicatesSkipped} skipped`);
     } catch (err) {
+      if (err instanceof BudgetExhausted) {
+        budgetExhausted = true;
+        if (item.kind === 'transcript') transcriptsSkipped++;
+        else pagesSkipped++;
+        continue;
+      }
       failures.push({
         source: originLabel,
         error: err instanceof Error ? err.message : String(err),
@@ -621,6 +709,9 @@ export async function runPhaseExtractAtoms(
       failures,
       estimated_spend_usd: estimatedSpendUsd,
       budget_usd: budgetCap,
+      model: extractModel,
+      model_chain: extractModelChain,
+      budget_exhausted: budgetExhausted,
       source_id: sourceId,
       dry_run: opts.dryRun ?? false,
     },

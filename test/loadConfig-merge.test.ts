@@ -9,12 +9,16 @@ import { loadConfigWithEngine, type GBrainConfig } from '../src/core/config.ts';
 
 interface FakeEngine {
   getConfig(key: string): Promise<string | null | undefined>;
+  listConfigKeys?(prefix: string): Promise<string[]>;
 }
 
 function makeEngine(map: Record<string, string | null | undefined>): FakeEngine {
   return {
     async getConfig(key: string) {
       return map[key];
+    },
+    async listConfigKeys(prefix: string) {
+      return Object.keys(map).filter(key => key.startsWith(prefix));
     },
   };
 }
@@ -92,6 +96,54 @@ describe('loadConfigWithEngine (Phase 4 / F3)', () => {
     expect(merged?.embedding_image_ocr).toBe(true);
   });
 
+  test('DB chat fallback chain fills in when file/env did not set it', async () => {
+    const base: GBrainConfig = { engine: 'pglite' };
+    const engine = makeEngine({
+      chat_fallback_chain: '["openrouter:deepseek/deepseek-v4-pro", "openrouter:openai/gpt-5"]',
+    });
+    const merged = await loadConfigWithEngine(engine, base);
+    expect(merged?.chat_fallback_chain).toEqual([
+      'openrouter:deepseek/deepseek-v4-pro',
+      'openrouter:openai/gpt-5',
+    ]);
+  });
+
+  test('file/env chat fallback chain wins over the DB value', async () => {
+    const base: GBrainConfig = {
+      engine: 'pglite',
+      chat_fallback_chain: ['openrouter:openai/gpt-5.6-terra'],
+    };
+    const engine = makeEngine({
+      chat_fallback_chain: 'openrouter:deepseek/deepseek-v4-pro',
+    });
+    const merged = await loadConfigWithEngine(engine, base);
+    expect(merged?.chat_fallback_chain).toEqual(['openrouter:openai/gpt-5.6-terra']);
+  });
+
+  test('DB provider_base_urls.<provider> fills the gateway base URL map', async () => {
+    const base: GBrainConfig = { engine: 'pglite' };
+    const engine = makeEngine({
+      'provider_base_urls.llama-server-reranker': 'http://127.0.0.1:8091/v1',
+    });
+    const merged = await loadConfigWithEngine(engine, base);
+    expect(merged?.provider_base_urls?.['llama-server-reranker']).toBe('http://127.0.0.1:8091/v1');
+  });
+
+  test('provider_base_urls merge is per-provider: file value wins and DB fills siblings', async () => {
+    const base: GBrainConfig = {
+      engine: 'pglite',
+      provider_base_urls: {
+        'llama-server-reranker': 'http://file.example/v1',
+      },
+    };
+    const engine = makeEngine({
+      'provider_base_urls.llama-server-reranker': 'http://db.example/v1',
+      'provider_base_urls.openrouter': 'http://openrouter.example/v1',
+    });
+    const merged = await loadConfigWithEngine(engine, base);
+    expect(merged?.provider_base_urls?.['llama-server-reranker']).toBe('http://file.example/v1');
+    expect(merged?.provider_base_urls?.openrouter).toBe('http://openrouter.example/v1');
+  });
   test('engine.getConfig throwing is non-fatal — file/env config still returned', async () => {
     const base: GBrainConfig = {
       engine: 'pglite',
