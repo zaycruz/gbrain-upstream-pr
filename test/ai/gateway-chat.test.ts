@@ -304,6 +304,7 @@ describe('chat touchpoint — gateway config plumbing', () => {
     expect(failure.cause).toBeInstanceOf(AggregateError);
     expect((failure.cause as AggregateError).errors).toEqual([first, second]);
   });
+
   test('chat applies the configured fallback to transient overloads', async () => {
     configureGateway({
       chat_model: 'anthropic:claude-sonnet-4-6',
