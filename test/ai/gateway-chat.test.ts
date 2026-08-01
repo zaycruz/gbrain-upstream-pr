@@ -266,6 +266,44 @@ describe('chat touchpoint — gateway config plumbing', () => {
     }
   });
 
+  test('chatWithFallback aggregates provider failures after all candidates fail', async () => {
+    configureGateway({
+      chat_model: 'anthropic:claude-sonnet-4-6',
+      chat_fallback_chain: ['deepseek:deepseek-v4-flash'],
+      env: {},
+    });
+    const first = new AITransientError('Anthropic stream error (overloaded_error): Overloaded');
+    const second = new AITransientError('DeepSeek service unavailable');
+    const calls: string[] = [];
+    let thrown: unknown;
+
+    try {
+      await chatWithFallback(
+        { messages: [{ role: 'user', content: 'hello' }] },
+        {
+          modelChain: ['anthropic:claude-sonnet-4-6', 'deepseek:deepseek-v4-flash'],
+          call: async opts => {
+            calls.push(opts.model!);
+            throw calls.length === 1 ? first : second;
+          },
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(calls).toEqual([
+      'anthropic:claude-sonnet-4-6',
+      'deepseek:deepseek-v4-flash',
+    ]);
+    expect(thrown).toBeInstanceOf(AITransientError);
+    const failure = thrown as AITransientError;
+    expect(failure.message).toContain('All configured chat models failed');
+    expect(failure.message).toContain('Check provider status');
+    expect(failure.cause).toBeInstanceOf(AggregateError);
+    expect((failure.cause as AggregateError).errors).toEqual([first, second]);
+  });
+
   test('chat applies the configured fallback to transient overloads', async () => {
     configureGateway({
       chat_model: 'anthropic:claude-sonnet-4-6',

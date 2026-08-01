@@ -3589,6 +3589,32 @@ export interface ChatFallbackOptions {
   /** Test or caller seam for one chat attempt. Defaults to gateway chat(). */
   call?: (opts: ChatOpts) => Promise<ChatResult>;
 }
+interface ChatFallbackFailure {
+  model: string;
+  error: unknown;
+}
+
+function createChatFallbackFailure(
+  failures: readonly ChatFallbackFailure[],
+): AIConfigError | AITransientError {
+  const models = failures.map(failure => failure.model).join(', ');
+  const cause = new AggregateError(
+    failures.map(failure => failure.error),
+    `Chat fallback attempts failed: ${models}`,
+  );
+  const message =
+    `All configured chat models failed (${models}). ` +
+    'Check provider status or configure another fallback model.';
+  if (failures.every(failure => failure.error instanceof AIConfigError)) {
+    return new AIConfigError(
+      message,
+      'Check provider credentials and model access, or configure another fallback model.',
+      cause,
+    );
+  }
+  return new AITransientError(message, cause);
+}
+
 
 /**
  * Run one chat request across an ordered model chain.
@@ -3619,6 +3645,7 @@ export async function chatWithFallback(
 
   let lastError: unknown;
   let attempted = false;
+  const failures: ChatFallbackFailure[] = [];
   const maxTransientFailures = options.maxTransientFailures ?? 2;
   for (let index = 0; index < chain.length; index++) {
     const model = chain[index]!;
@@ -3629,16 +3656,17 @@ export async function chatWithFallback(
       const result = await call({ ...opts, model });
       options.transientFailures?.delete(model);
       if (result.stopReason !== 'refusal' || !nextModel) return result;
-      console.error(
-        `[ai.gateway] ${model} returned a refusal; trying fallback ${nextModel}`,
+      console.warn(
+        `[ai.gateway] Chat model ${model} returned a refusal; trying configured fallback ${nextModel}.`,
       );
-      continue;
     } catch (err) {
       lastError = err;
+      failures.push({ model, error: err });
       const canFallback =
         err instanceof AITransientError ||
         (fallbackOnConfigError && err instanceof AIConfigError);
-      if (!canFallback || !nextModel || opts.abortSignal?.aborted) throw err;
+      if (!canFallback || opts.abortSignal?.aborted) throw err;
+      if (!nextModel) continue;
       if (options.skipModels) {
         if (err instanceof AIConfigError) {
           options.skipModels.add(model);
@@ -3649,15 +3677,14 @@ export async function chatWithFallback(
         }
       }
       const detail = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[ai.gateway] ${model} failed; trying fallback ${nextModel}: ${detail}`,
-      );
+      console.warn(`[ai.gateway] Chat model ${model} failed; trying configured fallback ${nextModel}. Reason: ${detail}`);
     }
   }
 
   if (!attempted && options.skipModels) {
     throw new Error('All chat fallback models are temporarily disabled after repeated failures.');
   }
+  if (failures.length > 1) throw createChatFallbackFailure(failures);
   throw lastError ?? new Error('No chat model is available.');
 }
 
