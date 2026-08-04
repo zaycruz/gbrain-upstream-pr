@@ -25,11 +25,13 @@ import {
   getChatFallbackChain,
   recipeSupportsStructuredOutputs,
   parseExpansionResponse,
+  chatWithFallback,
   chat,
   __setGenerateTextTransportForTests,
+  __setChatTransportForTests,
 } from '../../src/core/ai/gateway.ts';
 import { parseModelId, resolveRecipe, assertTouchpoint } from '../../src/core/ai/model-resolver.ts';
-import { AIConfigError } from '../../src/core/ai/errors.ts';
+import { AIConfigError, AITransientError } from '../../src/core/ai/errors.ts';
 import { listRecipes, getRecipe } from '../../src/core/ai/recipes/index.ts';
 import type { Recipe } from '../../src/core/ai/types.ts';
 
@@ -227,6 +229,189 @@ describe('chat touchpoint — gateway config plumbing', () => {
     expect(getChatFallbackChain()).toEqual([]);
   });
 
+  test('chatWithFallback moves past transient provider overloads', async () => {
+    configureGateway({
+      chat_model: 'anthropic:claude-sonnet-4-6',
+      chat_fallback_chain: ['deepseek:deepseek-v4-flash'],
+      env: {},
+    });
+    const calls: string[] = [];
+    __setChatTransportForTests(async (opts) => {
+      const model = opts.model!;
+      calls.push(model);
+      if (model.startsWith('anthropic:')) {
+        throw new AITransientError('Anthropic stream error (overloaded_error): Overloaded');
+      }
+      return {
+        text: 'fallback answer',
+        blocks: [{ type: 'text', text: 'fallback answer' }],
+        stopReason: 'end',
+        usage: { input_tokens: 1, output_tokens: 2, cache_read_tokens: 0, cache_creation_tokens: 0 },
+        model,
+        providerId: 'deepseek',
+      };
+    });
+    try {
+      const result = await chatWithFallback({
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+      expect(result.text).toBe('fallback answer');
+      expect(result.model).toBe('deepseek:deepseek-v4-flash');
+      expect(calls).toEqual([
+        'anthropic:claude-sonnet-4-6',
+        'deepseek:deepseek-v4-flash',
+      ]);
+    } finally {
+      __setChatTransportForTests(null);
+    }
+  });
+
+  test('chatWithFallback aggregates provider failures after all candidates fail', async () => {
+    configureGateway({
+      chat_model: 'anthropic:claude-sonnet-4-6',
+      chat_fallback_chain: ['deepseek:deepseek-v4-flash'],
+      env: {},
+    });
+    const first = new AITransientError('Anthropic stream error (overloaded_error): Overloaded');
+    const second = new AITransientError('DeepSeek service unavailable');
+    const calls: string[] = [];
+    let thrown: unknown;
+
+    try {
+      await chatWithFallback(
+        { messages: [{ role: 'user', content: 'hello' }] },
+        {
+          modelChain: ['anthropic:claude-sonnet-4-6', 'deepseek:deepseek-v4-flash'],
+          call: async opts => {
+            calls.push(opts.model!);
+            throw calls.length === 1 ? first : second;
+          },
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(calls).toEqual([
+      'anthropic:claude-sonnet-4-6',
+      'deepseek:deepseek-v4-flash',
+    ]);
+    expect(thrown).toBeInstanceOf(AITransientError);
+    const failure = thrown as AITransientError;
+    expect(failure.message).toContain('All configured chat models failed');
+    expect(failure.message).toContain('Check provider status');
+    expect(failure.cause).toBeInstanceOf(AggregateError);
+    expect((failure.cause as AggregateError).errors).toEqual([first, second]);
+  });
+
+  test('chat applies the configured fallback to transient overloads', async () => {
+    configureGateway({
+      chat_model: 'anthropic:claude-sonnet-4-6',
+      chat_fallback_chain: ['deepseek:deepseek-v4-flash'],
+      env: {},
+    });
+    const calls: string[] = [];
+    __setChatTransportForTests(async (opts) => {
+      const model = opts.model!;
+      calls.push(model);
+      if (model.startsWith('anthropic:')) {
+        throw new AITransientError('Anthropic stream error (overloaded_error): Overloaded');
+      }
+      return {
+        text: 'fallback answer',
+        blocks: [{ type: 'text', text: 'fallback answer' }],
+        stopReason: 'end',
+        usage: { input_tokens: 1, output_tokens: 2, cache_read_tokens: 0, cache_creation_tokens: 0 },
+        model,
+        providerId: 'deepseek',
+      };
+    });
+    try {
+      const result = await chat({
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+      expect(result.text).toBe('fallback answer');
+      expect(calls).toEqual([
+        'anthropic:claude-sonnet-4-6',
+        'deepseek:deepseek-v4-flash',
+      ]);
+    } finally {
+      __setChatTransportForTests(null);
+    }
+  });
+
+  test('chat keeps the configured primary behind an explicit model override', async () => {
+    configureGateway({
+      chat_model: 'openrouter:openai/gpt-5.6-terra',
+      chat_fallback_chain: [],
+      env: {},
+    });
+    const calls: string[] = [];
+    __setChatTransportForTests(async (opts) => {
+      const model = opts.model!;
+      calls.push(model);
+      if (model.startsWith('anthropic:')) {
+        throw new AITransientError('Anthropic stream error (overloaded_error): Overloaded');
+      }
+      return {
+        text: 'configured primary answer',
+        blocks: [{ type: 'text', text: 'configured primary answer' }],
+        stopReason: 'end',
+        usage: { input_tokens: 1, output_tokens: 2, cache_read_tokens: 0, cache_creation_tokens: 0 },
+        model,
+        providerId: 'openrouter',
+      };
+    });
+    try {
+      const result = await chat({
+        model: 'anthropic:claude-sonnet-4-6',
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+      expect(result.text).toBe('configured primary answer');
+      expect(calls).toEqual([
+        'anthropic:claude-sonnet-4-6',
+        'openrouter:openai/gpt-5.6-terra',
+      ]);
+    } finally {
+      __setChatTransportForTests(null);
+    }
+  });
+
+  test('chat applies the configured fallback to provider configuration failures', async () => {
+    configureGateway({
+      chat_model: 'anthropic:claude-sonnet-4-6',
+      chat_fallback_chain: ['deepseek:deepseek-v4-flash'],
+      env: {},
+    });
+    const calls: string[] = [];
+    __setChatTransportForTests(async (opts) => {
+      const model = opts.model!;
+      calls.push(model);
+      if (model.startsWith('anthropic:')) {
+        throw new AIConfigError('Anthropic credit balance is too low');
+      }
+      return {
+        text: 'fallback answer',
+        blocks: [{ type: 'text', text: 'fallback answer' }],
+        stopReason: 'end',
+        usage: { input_tokens: 1, output_tokens: 2, cache_read_tokens: 0, cache_creation_tokens: 0 },
+        model,
+        providerId: 'deepseek',
+      };
+    });
+    try {
+      const result = await chat({
+        messages: [{ role: 'user', content: 'hello' }],
+      });
+      expect(result.text).toBe('fallback answer');
+      expect(calls).toEqual([
+        'anthropic:claude-sonnet-4-6',
+        'deepseek:deepseek-v4-flash',
+      ]);
+    } finally {
+      __setChatTransportForTests(null);
+    }
+  });
   test('isAvailable("chat") returns true when default Anthropic + key present', () => {
     configureGateway({ env: { ANTHROPIC_API_KEY: 'fake' } });
     expect(isAvailable('chat')).toBe(true);

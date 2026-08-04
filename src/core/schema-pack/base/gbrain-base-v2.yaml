@@ -233,6 +233,9 @@ page_types:
       - source/article
       - transcript
       - ref
+      - conversation
+      - meeting
+      - inbox
     extractable: true
     expert_routing: false
 
@@ -285,6 +288,10 @@ page_types:
     aliases:
       - initiative
       - workstream
+      - plan
+      - requirements
+      - design
+      - release-evidence
     extractable: false
     expert_routing: false
 
@@ -299,6 +306,19 @@ page_types:
       - insight
       - principle
       - framework
+      - lesson
+      - decision
+      - run-log
+      - knowledge
+      - reference
+      - memory
+      - index
+      - journal
+      - ADR
+      - extract_receipt
+      - ops-note
+      - policy
+      - schema
     extractable: true
     expert_routing: false
 

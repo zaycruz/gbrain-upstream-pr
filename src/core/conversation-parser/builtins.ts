@@ -670,6 +670,26 @@ export const BUILTIN_PATTERNS: readonly PatternEntry[] = [
     test_negative: ['<alice> classic irc, no time', '[18:37] @alice: matrix'],
     source_doc: 'weechat default logger.format `%H:%M %p\\t%m`',
   },
+  {
+    id: 'plain-role-prefix',
+    origin: 'builtin',
+    // Capture CLI transcript format: `user: question` / `assistant: answer`.
+    regex: /^(user|assistant|system|tool|developer):\s*(.*)$/,
+    captures: {
+      speaker_group: 1,
+      text_group: 2,
+    },
+    date_source: 'frontmatter',
+    time_format: '24h',
+    timezone_policy: 'utc_assumed_with_warn',
+    multi_line: false,
+    score_full_body: true,
+    quick_reject: /^(?:user|assistant|system|tool|developer):/,
+    test_positive: ['user: hello', 'assistant: response here'],
+    test_negative: ['Alice: ordinary speaker label', 'https://example.com'],
+    source_doc: 'Role-prefixed capture-cli transcript format',
+  },
+
 ];
 
 /**

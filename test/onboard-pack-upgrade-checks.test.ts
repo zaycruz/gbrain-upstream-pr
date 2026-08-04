@@ -105,13 +105,13 @@ describe('checkPackUpgradeAvailable', () => {
   });
 });
 
-describe('checkTypeProliferation (D16 pack-aware ratio)', () => {
-  it('returns ok when distinct types under declared+5 threshold', async () => {
-    await seedPages(['note', 'meeting', 'slack']);
-    await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
-      const result = await checkTypeProliferation(engine);
-      expect(result.check.status).toBe('ok');
-    });
+describe('checkTypeProliferation (D16 pack-aware coverage)', () => {
+  it('returns ok when every distinct type is declared or aliased', async () => {
+    await engine.setConfig('schema_pack', 'gbrain-base-v2');
+    await seedPages(['note', 'meeting', 'conversation', 'run-log', 'ADR']);
+    const result = await checkTypeProliferation(engine);
+    expect(result.check.status).toBe('ok');
+    expect(result.check.message).toContain('0 unrecognized');
   });
 
   it('uses the source-scoped pack when a source is supplied', async () => {
@@ -120,7 +120,7 @@ describe('checkTypeProliferation (D16 pack-aware ratio)', () => {
     await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
       const result = await checkTypeProliferation(engine, 'default');
       expect(result.check.status).toBe('ok');
-      expect(result.check.message).toContain('pack declares 17');
+      expect(result.check.message).toContain('0 unrecognized');
     });
   });
 
@@ -132,28 +132,36 @@ describe('checkTypeProliferation (D16 pack-aware ratio)', () => {
       const byName = new Map(checks.map(result => [result.check.name, result.check]));
 
       expect(byName.get('pack_upgrade_available')?.status).toBe('ok');
-      expect(byName.get('type_proliferation')?.message).toContain('pack declares 17');
+      expect(byName.get('type_proliferation')?.message).toContain('0 unrecognized');
     });
   });
 
-  it('warns when distinct types exceed declared+5', async () => {
-    // Threshold-relative (v0.42.56.0): compute `declared` from the active pack
-    // the same way checkTypeProliferation does, then seed declared+6 so the
-    // test keeps passing when the base pack grows (e.g. #2390 added
-    // event + diary and silently moved the fixed threshold).
-    await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
-      const { loadActivePack } = await import('../src/core/schema-pack/load-active.ts');
-      const dbConfig = (await engine.getConfig('schema_pack')) ?? undefined;
-      const active = await loadActivePack({ cfg: null, remote: false, dbConfig }).catch(() => null);
-      const declared = active ? active.manifest.page_types.length : 15;
-      const seedCount = declared + 6; // one past the warn threshold (declared+5)
-      const types: string[] = [];
-      for (let i = 0; i < seedCount; i++) types.push(`custom-type-${i}`);
-      await seedPages(types);
-      const result = await checkTypeProliferation(engine);
-      expect(result.check.status).toBe('warn');
-      expect(result.check.message).toMatch(new RegExp(`${seedCount} distinct`));
-    });
+  it('warns when more than five distinct types are unrecognized', async () => {
+    await engine.setConfig('schema_pack', 'gbrain-base-v2');
+    const types = Array.from({ length: 6 }, (_, i) => `custom-type-${i}`);
+    await seedPages(types);
+    const result = await checkTypeProliferation(engine);
+    expect(result.check.status).toBe('warn');
+    expect(result.check.message).toContain('6/6 distinct');
+  });
+
+  it('skips without a false warning when the active pack cannot load', async () => {
+    await engine.setConfig('schema_pack', 'missing-pack');
+    const result = await checkTypeProliferation(engine);
+    expect(result.check.status).toBe('ok');
+    expect(result.check.message).toContain('Check skipped');
+  });
+
+  it('skips without throwing when the page type query fails', async () => {
+    const failingEngine = {
+      getConfig: async () => 'gbrain-base-v2',
+      executeRaw: async () => {
+        throw new Error('database unavailable');
+      },
+    } as unknown as PGLiteEngine;
+    const result = await checkTypeProliferation(failingEngine);
+    expect(result.check.status).toBe('ok');
+    expect(result.check.message).toContain('database unavailable');
   });
 });
 
