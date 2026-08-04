@@ -60,6 +60,12 @@ export interface ExtractReceiptInput {
   kind: string;
   /** Brain source the extraction targeted. */
   source_id: string;
+  /**
+   * Source artifacts that contributed committed output (page slugs or
+   * transcript paths). A single reference is stamped as `raw_source`; multiple
+   * references are stamped as `raw_trace`.
+   */
+  source_refs?: readonly string[];
   /** Op-checkpoint id or progressive-batch operation_id for trace continuity. */
   run_id: string;
   /** Which round this receipt covers. */
@@ -161,17 +167,18 @@ function buildReceiptBody(input: ExtractReceiptInput): string {
 /**
  * Build the receipt frontmatter. Two anti-loop flags
  * (type:extract_receipt + dream_generated:true) are stamped by every
- * writeReceipt call regardless of caller. Per D-EXTRACT-19.
+ * writeReceipt call regardless of caller. Per D-EXTRACT-19. Source-backed
+ * callers also stamp the actual source artifact(s) for raw_provenance.
  */
 function buildReceiptFrontmatter(input: ExtractReceiptInput): Record<string, unknown> {
+  const sourceRefs = [...new Set(
+    (input.source_refs ?? [])
+      .map((ref) => ref.trim())
+      .filter((ref) => ref.length > 0),
+  )];
   const fm: Record<string, unknown> = {
     type: 'extract_receipt',
     dream_generated: true,
-    // #1978: receipts record an operation, not a source document — the
-    // run_id/round fields ARE the provenance. Explicit exemption keeps the
-    // doctor raw_provenance check quiet.
-    raw_trace_exempt: true,
-    raw_trace_exempt_reason: 'operation receipt; provenance is run_id + round',
     kind: input.kind,
     source_id: input.source_id,
     run_id: input.run_id,
@@ -180,6 +187,17 @@ function buildReceiptFrontmatter(input: ExtractReceiptInput): Record<string, unk
     total_rows: input.total_rows,
     cost_usd: input.cost_usd,
   };
+  if (sourceRefs.length === 1) {
+    fm.raw_source = sourceRefs[0];
+  } else if (sourceRefs.length > 1) {
+    fm.raw_trace = sourceRefs;
+  } else {
+    // #1978: callers that intentionally produce an operation-only receipt
+    // have no source artifact to point at; run_id + round identify that
+    // operation instead of inventing a source from source_id.
+    fm.raw_trace_exempt = true;
+    fm.raw_trace_exempt_reason = 'operation receipt has no source artifact by design; provenance is run_id + round';
+  }
   if (input.model_id) fm.model_id = input.model_id;
   if (typeof input.eval_pass === 'boolean') fm.eval_pass = input.eval_pass;
   if (typeof input.eval_score === 'number') fm.eval_score = input.eval_score;

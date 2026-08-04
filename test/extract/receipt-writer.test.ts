@@ -141,11 +141,62 @@ describe('writeReceipt — frontmatter D-EXTRACT-19 belt+suspenders', () => {
     // belt + suspenders: both anti-loop flags are present
     expect(page.frontmatter?.type).toBe('extract_receipt');
     expect(page.frontmatter?.dream_generated).toBe(true);
-    // #1978: receipts are operation records, not derived documents —
-    // explicit raw-trace exemption so the doctor raw_provenance check
-    // (warn-only v1) stays quiet.
+    // #1978: an operation-only receipt has no source artifact to trace, so
+    // it uses the explicit exemption rather than inventing one from source_id.
     expect(page.frontmatter?.raw_trace_exempt).toBe(true);
     expect(typeof page.frontmatter?.raw_trace_exempt_reason).toBe('string');
+  });
+
+  test('stamps actual source provenance for atoms, facts, and takes receipts', async () => {
+    const cases = [
+      { kind: 'atoms', source_ref: '/transcripts/2026-07-30.md' },
+      { kind: 'facts.fence', source_ref: 'people/alice-example' },
+      { kind: 'takes.proposed', source_ref: 'meetings/2026-07-30' },
+    ] as const;
+
+    for (const [index, { kind, source_ref }] of cases.entries()) {
+      const { slug, page } = await writeReceipt(engine, {
+        ...BASE_INPUT,
+        kind,
+        run_id: `source-${index}-receipt`,
+        source_refs: [source_ref],
+      });
+
+      expect(slug).toContain(`extracts/2026-05-27/${kind}/`);
+      expect(page.frontmatter?.raw_source).toBe(source_ref);
+      expect(page.frontmatter?.raw_trace).toBeUndefined();
+      expect(page.frontmatter?.raw_trace_exempt).toBeUndefined();
+      expect(page.frontmatter?.raw_source).not.toBe(BASE_INPUT.source_id);
+    }
+  });
+
+  test('keeps every distinct source reference in raw_trace without inventing one', async () => {
+    const { page } = await writeReceipt(engine, {
+      ...BASE_INPUT,
+      kind: 'takes.proposed',
+      run_id: 'multi-source-receipt',
+      source_refs: ['people/alice-example', 'people/bob-example', 'people/alice-example'],
+    });
+
+    expect(page.frontmatter?.raw_trace).toEqual(['people/alice-example', 'people/bob-example']);
+    expect(page.frontmatter?.raw_source).toBeUndefined();
+    expect(page.frontmatter?.raw_trace_exempt).toBeUndefined();
+  });
+
+  test('uses the explicit operation exemption when no source artifact exists', async () => {
+    const { page } = await writeReceipt(engine, {
+      ...BASE_INPUT,
+      kind: 'atoms',
+      run_id: 'no-source-receipt',
+      source_refs: [],
+    });
+
+    expect(page.frontmatter?.raw_source).toBeUndefined();
+    expect(page.frontmatter?.raw_trace).toBeUndefined();
+    expect(page.frontmatter?.raw_trace_exempt).toBe(true);
+    expect(page.frontmatter?.raw_trace_exempt_reason).toBe(
+      'operation receipt has no source artifact by design; provenance is run_id + round',
+    );
   });
 
   test('stamps optional model_id + eval_pass + eval_score when supplied', async () => {

@@ -334,6 +334,8 @@ export async function runExtractFacts(
     slugs = Array.from(slugSet);
   }
 
+  const receiptSourceRefs = new Set<string>();
+
   // ── Reconcile each page ───────────────────────────────────────
   for (const slug of slugs) {
     // #1972: bail at the top of the per-page loop on abort. Each page is an
@@ -465,6 +467,7 @@ export async function runExtractFacts(
 
     const inserted = await engine.insertFacts(toInsert, { source_id: sourceId }); // gbrain-allow-direct-insert: extract_facts cycle phase reconciles fence → DB
     result.factsInserted += inserted.inserted;
+    if (inserted.inserted > 0) receiptSourceRefs.add(slug);
   }
 
   // v0.42 Wave B3: receipt + rollup. extract_facts is deterministic
@@ -476,6 +479,7 @@ export async function runExtractFacts(
       await writeReceipt(engine, {
         kind: 'facts.fence',
         source_id: sourceId,
+        source_refs: [...receiptSourceRefs],
         run_id: runId,
         round: 'single',
         extracted_at: new Date().toISOString(),

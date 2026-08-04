@@ -18,6 +18,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { RemediationStep } from '../remediation-step.ts';
 import { makeRemediationStep } from '../remediation-step.ts';
+import { entityCoveragePredicate } from '../entity-coverage.ts';
 
 /** Shared shape returned by all four checks. */
 export interface OnboardCheckResult {
@@ -119,8 +120,7 @@ export async function checkEntityLinkCoverage(
   const totalEntities = await safeCount(
     engine,
     `SELECT COUNT(*) AS count FROM pages
-       WHERE type IN ('person', 'company', 'organization', 'entity')
-         AND deleted_at IS NULL`,
+       WHERE ${entityCoveragePredicate()}`,
   );
 
   if (totalEntities === 0) {
@@ -142,8 +142,7 @@ export async function checkEntityLinkCoverage(
     engine,
     `SELECT COUNT(*) AS count FROM (
        SELECT p.id FROM pages p ${sampleClause}
-       WHERE p.type IN ('person', 'company', 'organization', 'entity')
-         AND p.deleted_at IS NULL
+       WHERE ${entityCoveragePredicate('p')}
          AND EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = p.id)
      ) sub`,
   );
@@ -214,8 +213,7 @@ export async function checkTimelineCoverage(
   const totalEntities = await safeCount(
     engine,
     `SELECT COUNT(*) AS count FROM pages
-       WHERE type IN ('person', 'company', 'organization', 'entity')
-         AND deleted_at IS NULL`,
+       WHERE ${entityCoveragePredicate()}`,
   );
 
   if (totalEntities === 0) {
@@ -235,8 +233,7 @@ export async function checkTimelineCoverage(
     engine,
     `SELECT COUNT(*) AS count FROM (
        SELECT p.id FROM pages p ${sampleClause}
-       WHERE p.type IN ('person', 'company', 'organization', 'entity')
-         AND p.deleted_at IS NULL
+       WHERE ${entityCoveragePredicate('p')}
          AND EXISTS (SELECT 1 FROM timeline_entries t WHERE t.page_id = p.id)
      ) sub`,
   );

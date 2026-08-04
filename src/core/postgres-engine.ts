@@ -23,6 +23,7 @@ import { deriveResolutionTuple, finalizeScorecard } from './takes-resolution.ts'
 import { normalizeWeightForStorage } from './takes-fence.ts';
 import { executeRawJsonb } from './sql-query.ts';
 import { sanitizeForJsonb, buildLinkRows, buildTimelineRows, buildTakeRows } from './batch-rows.ts';
+import { entityCoveragePredicate } from './entity-coverage.ts';
 import { runMigrations } from './migrate.ts';
 import { SCHEMA_SQL } from './schema-embedded.ts';
 import { verifySchema } from './schema-verify.ts';
@@ -5436,9 +5437,9 @@ export class PostgresEngine implements BrainEngine {
     // posture as getStats — so brain_score moves when the user deletes pages.
     // Chunk/link counts stay raw (storage until the purge phase), matching
     // getStats, and destructive-removal counts elsewhere deliberately stay raw.
-    const [h] = await sql`
+    const [h] = await sql.unsafe(`
       WITH entity_pages AS (
-        SELECT id, slug FROM pages WHERE type IN ('entity', 'person', 'company') AND deleted_at IS NULL
+        SELECT id, slug FROM pages WHERE ${entityCoveragePredicate()}
       )
       SELECT
         (SELECT count(*) FROM pages WHERE deleted_at IS NULL) as page_count,
@@ -5457,16 +5458,16 @@ export class PostgresEngine implements BrainEngine {
         (SELECT count(*) FROM entity_pages e
          WHERE EXISTS (SELECT 1 FROM timeline_entries te WHERE te.page_id = e.id))::float /
           GREATEST((SELECT count(*) FROM entity_pages), 1)::float as timeline_coverage
-    `;
+    `);
 
-    const connected = await sql`
+    const connected = await sql.unsafe(`
       SELECT p.slug,
              (SELECT count(*) FROM links l WHERE l.from_page_id = p.id OR l.to_page_id = p.id)::int as link_count
       FROM pages p
-      WHERE p.type IN ('entity', 'person', 'company') AND p.deleted_at IS NULL
+      WHERE ${entityCoveragePredicate('p')}
       ORDER BY link_count DESC
       LIMIT 5
-    `;
+    `);
 
     // Per-page flags for the linkable scope: orphan_pages and the
     // no-orphans / timeline-coverage DENOMINATORS are all computed over

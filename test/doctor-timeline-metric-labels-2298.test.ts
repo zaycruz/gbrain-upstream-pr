@@ -84,6 +84,64 @@ describe('issue #2298 — numeric denominator semantics', () => {
     // 50% (entity, /2) != 26.7% (whole-brain, /4). Provably distinct.
     expect(Math.round(((health.timeline_coverage_score ?? 0) / 15) * 100)).not.toBe(50);
   });
+
+  test('agent-maintained company notes do not dilute entity timeline coverage', async () => {
+    const sql = sqlQueryForEngine(engine);
+    await sql`
+      INSERT INTO pages (slug, source_id, type, title, compiled_truth, frontmatter, content_hash, created_at, updated_at)
+      VALUES
+        ('companies/acme', 'default', 'company', 'Acme', '', '{}', 'canonical-company', now(), now()),
+        ('agents/atlas/_notes/companies/acme', 'default', 'company', 'Acme notes', '', '{}', 'agent-notes', now(), now())
+    `;
+    const companyId = (await sql`SELECT id FROM pages WHERE slug = 'companies/acme'`)[0].id as number;
+    await sql`
+      INSERT INTO timeline_entries (page_id, date, source, summary, detail)
+      VALUES (${companyId}, CURRENT_DATE, 'test', 'milestone', '{}')
+    `;
+
+    const health = await engine.getHealth();
+    expect(health.timeline_coverage).toBe(1);
+
+    const checks = await buildChecks(engine, [], null);
+    const graph = checks.find((check) => check.name === 'graph_coverage');
+    expect(graph?.message).toContain('entity timeline coverage 100%');
+  });
+
+  test('similarly named canonical path segments remain in the denominator', async () => {
+    const sql = sqlQueryForEngine(engine);
+    await sql`
+      INSERT INTO pages (slug, source_id, type, title, compiled_truth, frontmatter, content_hash, created_at, updated_at)
+      VALUES
+        ('companies/acme', 'default', 'company', 'Acme', '', '{}', 'company-with-timeline', now(), now()),
+        ('companies/anotes/widget', 'default', 'company', 'Widget', '', '{}', 'company-without-timeline', now(), now())
+    `;
+    const companyId = (await sql`SELECT id FROM pages WHERE slug = 'companies/acme'`)[0].id as number;
+    await sql`
+      INSERT INTO timeline_entries (page_id, date, source, summary, detail)
+      VALUES (${companyId}, CURRENT_DATE, 'test', 'milestone', '{}')
+    `;
+
+    const health = await engine.getHealth();
+    expect(health.timeline_coverage).toBe(0.5);
+  });
+
+  test('organization pages remain canonical entity coverage records', async () => {
+    const sql = sqlQueryForEngine(engine);
+    await sql`
+      INSERT INTO pages (slug, source_id, type, title, compiled_truth, frontmatter, content_hash, created_at, updated_at)
+      VALUES
+        ('companies/acme', 'default', 'company', 'Acme', '', '{}', 'company-with-timeline', now(), now()),
+        ('organizations/example-foundation', 'default', 'organization', 'Example Foundation', '', '{}', 'organization-without-timeline', now(), now())
+    `;
+    const companyId = (await sql`SELECT id FROM pages WHERE slug = 'companies/acme'`)[0].id as number;
+    await sql`
+      INSERT INTO timeline_entries (page_id, date, source, summary, detail)
+      VALUES (${companyId}, CURRENT_DATE, 'test', 'milestone', '{}')
+    `;
+
+    const health = await engine.getHealth();
+    expect(health.timeline_coverage).toBe(0.5);
+  });
 });
 
 describe('issue #2298 — doctor rendered-message contract', () => {

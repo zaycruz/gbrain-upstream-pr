@@ -24,6 +24,7 @@ import { PGLITE_SCHEMA_SQL, getPGLiteSchema } from './pglite-schema.ts';
 import { DEFAULT_EMBEDDING_MODEL, DEFAULT_EMBEDDING_DIMENSIONS } from './ai/defaults.ts';
 import { DELETE_BATCH_SIZE } from './engine-constants.ts';
 import { SOURCE_CONFIG_OBJECT_SQL } from './source-config-sql.ts';
+import { entityCoveragePredicate } from './entity-coverage.ts';
 import { MARKDOWN_CHUNKER_VERSION } from './chunkers/recursive.ts';
 import { acquireLock, releaseLock, type LockHandle } from './pglite-lock.ts';
 import { getFtsLanguage } from './fts-language.ts';
@@ -5338,7 +5339,7 @@ export class PGLiteEngine implements BrainEngine {
     // getStats, and destructive-removal counts elsewhere deliberately stay raw.
     const { rows: [h] } = await this.db.query(`
       WITH entity_pages AS (
-        SELECT id, slug FROM pages WHERE type IN ('entity', 'person', 'company') AND deleted_at IS NULL
+        SELECT id, slug FROM pages WHERE ${entityCoveragePredicate()}
       )
       SELECT
         (SELECT count(*) FROM pages WHERE deleted_at IS NULL) as page_count,
@@ -5366,7 +5367,7 @@ export class PGLiteEngine implements BrainEngine {
       SELECT p.slug,
              (SELECT count(*) FROM links l WHERE l.from_page_id = p.id OR l.to_page_id = p.id)::int as link_count
       FROM pages p
-      WHERE p.type IN ('entity', 'person', 'company') AND p.deleted_at IS NULL
+      WHERE ${entityCoveragePredicate('p')}
       ORDER BY link_count DESC
       LIMIT 5
     `);
