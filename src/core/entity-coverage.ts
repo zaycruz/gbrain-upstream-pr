@@ -14,6 +14,6 @@ export function entityCoveragePredicate(alias?: string): string {
   return [
     `${prefix}type IN ${ENTITY_TYPES_SQL}`,
     `${prefix}deleted_at IS NULL`,
-    `${prefix}slug NOT LIKE '%/@_notes/%' ESCAPE '@'`,
+    `POSITION('/_notes/' IN ${prefix}slug) = 0`,
   ].join(' AND ');
 }
