@@ -483,10 +483,21 @@ export function parseConversation(
   const dateCtx = deriveDateContext(opts);
 
   // Assemble candidate pool: built-ins (minus disabled) + user patterns.
+  // Capture CLI pages are trusted transcripts only when their source kind was
+  // persisted in the server-owned DB column. Frontmatter is content and can
+  // be supplied by an untrusted caller, so it must never relax scoring.
   const disabledSet = new Set(opts.disabledBuiltinIds ?? []);
   const builtinPool = BUILTIN_PATTERNS.filter((p) => !disabledSet.has(p.id));
   const userPool = opts.userPatterns ?? [];
-  const candidates: readonly PatternEntry[] = [...builtinPool, ...userPool];
+  const baseCandidates: readonly PatternEntry[] = [...builtinPool, ...userPool];
+  const trustedCapture = opts.page?.source_kind === 'capture-cli';
+  const candidates: readonly PatternEntry[] = trustedCapture
+    ? baseCandidates.map((entry) =>
+        entry.id === 'plain-role-prefix'
+          ? { ...entry, score_continuations_as_body: true }
+          : entry,
+      )
+    : baseCandidates;
 
   if (candidates.length === 0) {
     return { messages: [], phase: 'no_match' };

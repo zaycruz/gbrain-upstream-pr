@@ -140,6 +140,58 @@ describe('parseConversation — plain role prefixes', () => {
     ]);
   });
 
+  test('groups continuations on non-capture role-prefixed transcripts', () => {
+    const body = [
+      'user: Explain the architecture.',
+      'assistant: Start with the entry point.',
+      'This line continues the assistant response.',
+      'user: List the API surface.',
+    ].join('\n');
+    const result = parseConversation(body);
+    expect(result.phase).toBe('regex_match');
+    expect(result.matched_pattern_id).toBe('plain-role-prefix');
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages[1].text).toContain(
+      'This line continues the assistant response.',
+    );
+  });
+
+  test('parses sparse multiline turns from trusted capture-cli pages', () => {
+    const body = [
+      '# Captured conversation',
+      'user: Explain the architecture.',
+      'assistant: Start with the entry point.',
+      ...Array.from(
+        { length: 100 },
+        (_, index) => `Detailed continuation line ${index}.`,
+      ),
+    ].join('\n');
+    const result = parseConversation(body, {
+      page: {
+        ...makePage({ captured_via: 'capture-cli' }),
+        source_kind: 'capture-cli',
+        ingested_via: 'ingest_capture',
+      },
+    });
+    expect(result.phase).toBe('regex_match');
+    expect(result.matched_pattern_id).toBe('plain-role-prefix');
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[1].text).toContain('Detailed continuation line 99.');
+  });
+
+  test('does not trust capture-cli provenance from frontmatter alone', () => {
+    const body = [
+      '# Captured conversation',
+      'user: Example field description.',
+      'assistant: Example field description.',
+      ...Array.from({ length: 100 }, (_, index) => `Prose line ${index}.`),
+    ].join('\n');
+    const result = parseConversation(body, {
+      page: makePage({ captured_via: 'capture-cli' }),
+    });
+    expect(result.phase).toBe('no_match');
+  });
+
   test('rejects sparse role labels in prose after full-body scoring', () => {
     const body = [
       'user: Example field description.',
