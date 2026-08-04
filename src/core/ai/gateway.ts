@@ -3569,7 +3569,7 @@ export interface ChatFallbackOptions {
   skipModels?: Set<string>;
   transientFailures?: Map<string, number>;
   maxTransientFailures?: number;
-  /** Test or caller seam for one chat attempt. Defaults to gateway chat(). */
+  /** Test or caller seam for one chat attempt. Defaults to chatAttempt. */
   call?: (opts: ChatOpts) => Promise<ChatResult>;
 }
 interface ChatFallbackFailure {

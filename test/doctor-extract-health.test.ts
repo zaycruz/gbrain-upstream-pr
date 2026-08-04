@@ -11,6 +11,7 @@
 import { describe, expect, test, beforeAll, afterAll } from 'bun:test';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { computeExtractHealthCheck } from '../src/commands/doctor.ts';
+import { emptyHome, withEnv } from './helpers/with-env.ts';
 
 let engine: PGLiteEngine;
 
@@ -121,17 +122,37 @@ describe('computeExtractHealthCheck — WARN paths', () => {
   });
 
   test('ignores disabled atom phase history while retaining raw aggregates', async () => {
-    await clearRollup();
-    await engine.executeRaw(
-      `INSERT INTO extract_rollup_7d (kind, source_id, day, cost_usd, eval_pass_count, eval_fail_count, halt_count, round_completed_count, rollup_write_failures, updated_at)
-       VALUES ('atoms', 'default', CURRENT_DATE, 0.20, 0, 0, 5, 1, 0, NOW())`,
-      [],
-    );
-    const check = await computeExtractHealthCheck(engine);
-    expect(check.status).toBe('ok');
-    expect(check.message).toContain('ignored disabled phase history: atoms');
-    expect((check.details as any)?.kinds[0].halt_rate).toBe(5 / 6);
-    expect((check.details as any)?.disabled_kinds).toEqual(['atoms']);
+    await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: undefined }, async () => {
+      await clearRollup();
+      await engine.executeRaw(
+        `INSERT INTO extract_rollup_7d (kind, source_id, day, cost_usd, eval_pass_count, eval_fail_count, halt_count, round_completed_count, rollup_write_failures, updated_at)
+         VALUES ('atoms', 'default', CURRENT_DATE, 0.20, 0, 0, 5, 1, 0, NOW())`,
+        [],
+      );
+      const check = await computeExtractHealthCheck(engine);
+      expect(check.status).toBe('ok');
+      expect(check.message).toContain('ignored disabled phase history: atoms');
+      expect((check.details as any)?.kinds[0].halt_rate).toBe(5 / 6);
+      expect((check.details as any)?.disabled_kinds).toEqual(['atoms']);
+    });
+  });
+  test('uses the same file-plane phase gate as the runtime cycle', async () => {
+    await engine.setConfig('schema_pack', 'gbrain-base-v2');
+    try {
+      await withEnv({ GBRAIN_HOME: emptyHome(), GBRAIN_SCHEMA_PACK: 'gbrain-creator' }, async () => {
+        await clearRollup();
+        await engine.executeRaw(
+          `INSERT INTO extract_rollup_7d (kind, source_id, day, cost_usd, eval_pass_count, eval_fail_count, halt_count, round_completed_count, rollup_write_failures, updated_at)
+           VALUES ('atoms', 'default', CURRENT_DATE, 0.20, 0, 0, 5, 1, 0, NOW())`,
+          [],
+        );
+        const check = await computeExtractHealthCheck(engine);
+        expect(check.status).toBe('warn');
+        expect(check.message).toContain('atoms');
+      });
+    } finally {
+      await engine.executeRaw(`DELETE FROM config WHERE key = 'schema_pack'`);
+    }
   });
 });
 

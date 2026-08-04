@@ -16,20 +16,28 @@ function makeEngine(config: Record<string, string>) {
   } as any;
 }
 
-function writeAuthFailure(auditDir: string, ts: string): void {
+function writeFailure(
+  auditDir: string,
+  ts: string,
+  reason: 'auth' | 'payload_too_large',
+): void {
   fs.mkdirSync(auditDir, { recursive: true });
   fs.appendFileSync(
     path.join(auditDir, computeRerankAuditFilename()),
     JSON.stringify({
       ts,
       model: MODEL,
-      reason: 'auth',
+      reason,
       query_hash: 'deadbeef',
       doc_count: 1,
-      error_summary: 'invalid api key',
+      error_summary: reason === 'auth' ? 'invalid api key' : 'payload too large',
       severity: 'warn',
     }) + '\n',
   );
+}
+
+function writeAuthFailure(auditDir: string, ts: string): void {
+  writeFailure(auditDir, ts, 'auth');
 }
 
 describe('checkRerankerHealth historical auth recovery', () => {
@@ -49,6 +57,27 @@ describe('checkRerankerHealth historical auth recovery', () => {
         }));
         expect(check.status).toBe('ok');
         expect(check.message).toContain('historical reranker auth failure');
+      });
+    } finally {
+      fs.rmSync(auditDir, { recursive: true, force: true });
+    }
+  });
+
+  test('a resolved auth failure does not mask a payload failure', async () => {
+    const auditDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gbrain-reranker-health-'));
+    try {
+      writeAuthFailure(auditDir, new Date(Date.now() - 60_000).toISOString());
+      writeFailure(auditDir, new Date(Date.now() - 45_000).toISOString(), 'payload_too_large');
+
+      await withEnv({ GBRAIN_AUDIT_DIR: auditDir }, async () => {
+        const check = await checkRerankerHealth(makeEngine({
+          'search.mode': 'balanced',
+          'search.reranker.enabled': 'true',
+          'search.reranker.last_verified_at': new Date(Date.now() - 30_000).toISOString(),
+          'search.reranker.last_verified_model': MODEL,
+        }));
+        expect(check.status).toBe('warn');
+        expect(check.message).toContain('payload-too-large');
       });
     } finally {
       fs.rmSync(auditDir, { recursive: true, force: true });

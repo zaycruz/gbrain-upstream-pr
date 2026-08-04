@@ -2,6 +2,15 @@
 
 All notable changes to GBrain will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **Hosted chat now falls back after Anthropic overloads.** Provider overload failures are classified as retryable and routed through the configured fallback chain instead of ending the request at the first provider.
+- **The recommended schema pack recognizes legacy page types.** Canonical aliases prevent existing typed content from inflating the unknown-type doctor warning during the pack migration.
+- **Conversation and extractor health checks now measure active behavior.** Capture-style role-prefixed transcripts parse through the canonical role pattern, and doctor excludes history for extractor phases that the active pack no longer runs.
+- **Doctor no longer preserves stale reranker authentication warnings after verified recovery.** `gbrain models doctor` executes the requested doctor subcommand, records the successful live reranker model and verification time, and clears only older authentication failures for that same model. Missing, stale, or model-mismatched verification remains a warning.
+- **Intentional search exclusions can be acknowledged without hiding accidental exclusions.** `GBRAIN_SEARCH_EXCLUDE_APPROVED` accepts an exact list of approved active prefixes. Approved prefixes remain excluded from default retrieval but become informational in doctor; any unapproved prefix still warns and names the explicit retrieval path.
+
 ## [0.42.67.0] - 2026-07-28
 
 **If you develop GBrain on Windows, the test and check commands now actually run. Until this release they were quietly doing almost nothing.**
@@ -491,12 +500,6 @@ The reported page and type counts now come from the `database_path` in `~/.gbrai
 ### To take advantage of v0.42.58.0
 `gbrain upgrade`. If you run on Ollama, a LiteLLM proxy, llama-server, or as a Claude Code MCP subprocess, the fixes apply automatically — no migration, no config change. If you use a user-provided embedding recipe (LiteLLM / llama-server) and see a "no default embedding dimension" message, set it with `gbrain init --embedding-dimensions <N>`.
 
-### Fixed
-- **Hosted chat now falls back after Anthropic overloads.** Provider overload failures are classified as retryable and routed through the configured fallback chain instead of ending the request at the first provider.
-- **The recommended schema pack recognizes legacy page types.** Canonical aliases prevent existing typed content from inflating the unknown-type doctor warning during the pack migration.
-- **Conversation and extractor health checks now measure active behavior.** Capture-style role-prefixed transcripts parse through the canonical role pattern, and doctor excludes history for extractor phases that the active pack no longer runs.
-- **Doctor no longer preserves stale reranker authentication warnings after verified recovery.** `gbrain models doctor` executes the requested doctor subcommand, records the successful live reranker model and verification time, and clears only older authentication failures for that same model. Missing, stale, or model-mismatched verification remains a warning.
-- **Intentional search exclusions can be acknowledged without hiding accidental exclusions.** `GBRAIN_SEARCH_EXCLUDE_APPROVED` accepts an exact list of approved active prefixes. Approved prefixes remain excluded from default retrieval but become informational in doctor; any unapproved prefix still warns and names the explicit retrieval path.
 
 ## [0.42.57.0] - 2026-07-02
 

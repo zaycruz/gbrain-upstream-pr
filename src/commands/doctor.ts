@@ -1617,6 +1617,7 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
     }
 
     const authFails = failures.filter((f) => f.reason === 'auth');
+    let resolvedAuthFailures = 0;
     if (authFails.length > 0) {
       // A live `gbrain models doctor` probe records the provider/model and
       // timestamp after a successful reachability check. Do not keep warning
@@ -1640,18 +1641,14 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
         lastVerifiedModel === liveModel;
 
       if (authFailuresResolved) {
+        resolvedAuthFailures = authFails.length;
+      } else {
         return {
           name: 'reranker_health',
-          status: 'ok',
-          message: `${authFails.length} historical reranker auth failure(s) resolved by a newer live probe`,
+          status: 'warn',
+          message: `${authFails.length} reranker auth failure(s) in last 7 days. Fix: verify ZEROENTROPY_API_KEY and run \`gbrain models doctor\`.`,
         };
       }
-
-      return {
-        name: 'reranker_health',
-        status: 'warn',
-        message: `${authFails.length} reranker auth failure(s) in last 7 days. Fix: verify ZEROENTROPY_API_KEY and run \`gbrain models doctor\`.`,
-      };
     }
 
     const payloadFails = failures.filter((f) => f.reason === 'payload_too_large');
@@ -1695,7 +1692,9 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
     return {
       name: 'reranker_health',
       status: 'ok',
-      message: `${failures.length} reranker failure(s) in last 7 days (below threshold)`,
+      message: resolvedAuthFailures > 0
+        ? `${resolvedAuthFailures} historical reranker auth failure(s) resolved by a newer live probe`
+        : `${failures.length} reranker failure(s) in last 7 days (below threshold)`,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -3897,20 +3896,12 @@ export async function computeExtractHealthCheck(
       synthesize_concepts: true,
     };
     try {
-      const { loadActivePack } = await import('../core/schema-pack/load-active.ts');
-      const { loadConfig } = await import('../core/config.ts');
-      const dbConfig = (await engine.getConfig('schema_pack')) ?? undefined;
-      const activePack = await loadActivePack({
-        cfg: loadConfig(),
-        remote: false,
-        dbConfig,
-      });
-      const declaredPhases = new Set(activePack.manifest.phases ?? []);
+      const { packDeclaresPhase } = await import('../core/cycle.ts');
       for (const phase of Object.values(phaseByKind)) {
-        enabledPhases[phase] = declaredPhases.has(phase);
+        enabledPhases[phase] = await packDeclaresPhase(engine, phase);
       }
     } catch {
-      // Fail closed: preserve warnings if active-pack resolution fails.
+      // Preserve warnings only if the runtime phase-gate helper cannot load.
     }
     const disabledKinds = kinds
       .filter(kind => phaseByKind[kind.kind] && !enabledPhases[phaseByKind[kind.kind]])
