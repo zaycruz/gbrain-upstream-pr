@@ -50,7 +50,7 @@ export function cleanSpeaker(raw: string, override?: RegExp): string {
   return stripped || raw.trim();
 }
 
-/** The 17 hand-vetted built-in patterns. */
+/** The 18 hand-vetted built-in patterns. */
 export const BUILTIN_PATTERNS: readonly PatternEntry[] = [
   // -------------------------------------------------------------------
   // INLINE-DATE patterns (date in every line; less ambiguous; tried first).
@@ -305,6 +305,36 @@ export const BUILTIN_PATTERNS: readonly PatternEntry[] = [
     ],
     source_doc:
       'Workspace raw transcript sidecar shape from capture-cli / phone-call transcripts: `Speaker A: ...`',
+  },
+
+  {
+    // capture-cli stores agent sessions as plain role-prefixed lines.
+    // Restrict the speaker token to the two canonical roles so prose labels
+    // such as `Owner:` and `Decision:` cannot become conversation messages.
+    id: 'capture-cli-role',
+    origin: 'builtin',
+    regex: /^(user|assistant):\s*(.*)$/i,
+    captures: {
+      speaker_group: 1,
+      text_group: 2,
+    },
+    date_source: 'frontmatter',
+    time_format: '24h',
+    timezone_policy: 'utc_assumed_with_warn',
+    multi_line: true,
+    quick_reject: /^(?:user|assistant):/i,
+    score_full_body: true,
+    test_positive: [
+      'user: Help me trace this code.',
+      'assistant: Open the entry point first.',
+    ],
+    test_negative: [
+      'Owner: this is a prose label',
+      '# user: title text is metadata, not a message',
+      'system: unsupported role',
+    ],
+    source_doc:
+      'capture-cli conversation page shape: `user: ...` / `assistant: ...`',
   },
 
   {

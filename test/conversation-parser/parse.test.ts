@@ -293,6 +293,29 @@ describe('parseConversation — multi-line continuation (D5)', () => {
   });
 });
 
+describe('parseConversation — capture-cli role lines', () => {
+  test('parses user and assistant turns with multiline bodies', () => {
+    const body = [
+      '# user: title text',
+      'user: Help me trace this code.',
+      'Include the message path.',
+      'assistant: Open the entry point first.',
+      'Then follow each call.',
+    ].join('\n');
+    const r = parseConversation(body, { fallbackDate: '2026-08-04' });
+    expect(r.matched_pattern_id).toBe('capture-cli-role');
+    expect(r.messages).toHaveLength(2);
+    expect(r.messages[0]).toMatchObject({
+      speaker: 'user',
+      text: 'Help me trace this code.\nInclude the message path.',
+    });
+    expect(r.messages[1]).toMatchObject({
+      speaker: 'assistant',
+      text: 'Open the entry point first.\nThen follow each call.',
+    });
+  });
+});
+
 describe('parseConversation — iMessage time-only 12h and date headings (#2756)', () => {
   test('parses the time-only 12-hour iMessage shape', () => {
     const r = parseConversation('**Alice Example** (9:04 PM): hello', {

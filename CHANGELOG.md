@@ -12,6 +12,10 @@ The v0.42.72.1 contribution policy is also withdrawn: the human-written intent p
 
 The code is preserved in git history at v0.42.73.0 and can be restored if the repository ever grants those permissions. If it is restored, the mechanical half — the intent and screenshot check, the version-first title rule, the red flags — should render to the Actions job summary instead of a comment, because that needs no token permission and no API key.
 
+**Captured agent conversations parse again.** Pages that store turns as plain `user:` and `assistant:` lines now enter the conversation parser, including multiline responses. The matcher accepts only those two roles and uses full-page density scoring, so ordinary prose labels do not become messages.
+
+**A configured subagent model no longer produces a false startup warning.** Gateway initialization now reads the same `models.subagent` key as the runtime and doctor. A different global default can no longer trigger a no-prompt-cache advisory when the explicit subagent model supports caching.
+
 ### To take advantage of v0.42.73.1
 
 ```bash
