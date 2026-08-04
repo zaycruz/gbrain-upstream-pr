@@ -1,5 +1,6 @@
 import type { BrainEngine } from '../core/engine.ts';
 import { REPAIR_SOURCE_CONFIG_SQL } from '../core/source-config-sql.ts';
+import { entityCoveragePredicate } from '../core/entity-coverage.ts';
 import { setCliExitVerdict } from '../core/cli-force-exit.ts';
 import { computeEffectiveDate } from '../core/effective-date.ts';
 import * as db from '../core/db.ts';
@@ -6407,7 +6408,7 @@ export async function buildChecks(
   try {
     const health = await engine.getHealth();
     const entityCount = (await engine.executeRaw<{ count: number }>(
-      "SELECT COUNT(*)::int AS count FROM pages WHERE type IN ('entity', 'person', 'company', 'organization')",
+      `SELECT COUNT(*)::int AS count FROM pages WHERE ${entityCoveragePredicate()}`,
     ))[0]?.count ?? 0;
 
     // Compute coverage against eligible entities only — exclude test fixtures
@@ -6418,7 +6419,7 @@ export async function buildChecks(
     const eligibleStats = (await engine.executeRaw<{ entities: number; linked_from: number; timeline: number }>(
       `WITH eligible AS (
         SELECT id FROM pages
-        WHERE type IN ('entity','person','company','organization')
+        WHERE ${entityCoveragePredicate()}
           AND slug NOT LIKE 'tools/gbrain/test/%'
           AND slug <> 'templates/new-person'
       )
@@ -6501,7 +6502,7 @@ export async function buildChecks(
     const srcId = orphanRatioSourceId;
     const inSource = srcId ? ` in source '${srcId}'` : '';
     const entityCount = (await engine.executeRaw<{ count: number }>(
-      `SELECT COUNT(*)::int AS count FROM pages WHERE type IN ('entity', 'person', 'company', 'organization') AND deleted_at IS NULL${srcId ? ' AND source_id = $1' : ''}`,
+      `SELECT COUNT(*)::int AS count FROM pages WHERE ${entityCoveragePredicate()}${srcId ? ' AND source_id = $1' : ''}`,
       srcId ? [srcId] : [],
     ))[0]?.count ?? 0;
     // Brain-wide (no --source): <100 entities is vacuous — small brains

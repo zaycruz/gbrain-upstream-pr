@@ -534,6 +534,7 @@ export async function runPhaseExtractAtoms(
   let transcriptsSkipped = 0;
   let pagesSkipped = 0;
   const failures: Array<{ source: string; error: string }> = [];
+  const receiptSourceRefs = new Set<string>();
   let estimatedSpendUsd = 0;
   let budgetExhausted = false;
   let extractModel = DEFAULT_EXTRACT_ATOMS_MODEL;
@@ -666,6 +667,7 @@ export async function runPhaseExtractAtoms(
             },
             { sourceId },
           );
+          receiptSourceRefs.add(srcRef);
           totalAtomsExtracted++;
         }
       } else {
@@ -701,6 +703,7 @@ export async function runPhaseExtractAtoms(
       await writeReceipt(engine, {
         kind: 'atoms',
         source_id: sourceId,
+        source_refs: [...receiptSourceRefs],
         run_id: runId,
         round: 'single',
         extracted_at: new Date().toISOString(),

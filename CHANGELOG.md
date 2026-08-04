@@ -12,6 +12,7 @@ All notable changes to GBrain will be documented in this file.
 - **Hosted remediation jobs submit against the production idempotency index.** Queue conflict inference now matches the live-row partial index while a same-key transaction lock preserves durable dedup for completed and failed work.
 - **Doctor no longer preserves stale reranker authentication warnings after verified recovery.** `gbrain models doctor` executes the requested doctor subcommand, records the successful live reranker model and verification time, and clears only older authentication failures for that same model. Missing, stale, or model-mismatched verification remains a warning.
 - **Intentional search exclusions can be acknowledged without hiding accidental exclusions.** `GBRAIN_SEARCH_EXCLUDE_APPROVED` accepts an exact list of approved active prefixes. Approved prefixes remain excluded from default retrieval but become informational in doctor; any unapproved prefix still warns and names the explicit retrieval path.
+- **Entity health metrics ignore agent-maintained note mirrors.** A shared PGLite/Postgres predicate excludes `/_notes/` pages from link and timeline denominators while retaining canonical person, company, organization, and entity records.
 
 ## [0.42.67.0] - 2026-07-28
 

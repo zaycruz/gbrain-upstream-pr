@@ -17,6 +17,7 @@
 // misattribute deltas to the wrong remediation.
 
 import type { BrainEngine } from './../engine.ts';
+import { entityCoveragePredicate } from './../entity-coverage.ts';
 
 export type MetricName =
   | 'orphan_count'
@@ -65,24 +66,21 @@ export async function captureMetric(
         // Compute as a fraction of entity pages with the relevant feature.
         const total = await engine.executeRaw<{ count: string | number }>(
           `SELECT COUNT(*) AS count FROM pages
-             WHERE type IN ('person', 'company', 'organization', 'entity')
-               AND deleted_at IS NULL`,
+             WHERE ${entityCoveragePredicate()}`,
         );
         const totalN = total.length > 0 ? Number(total[0].count) : 0;
         if (totalN === 0) return 1; // vacuous truth — empty brain has full coverage
         if (metric === 'entity_link_coverage') {
           const withLinks = await engine.executeRaw<{ count: string | number }>(
             `SELECT COUNT(*) AS count FROM pages p
-               WHERE p.type IN ('person', 'company', 'organization', 'entity')
-                 AND p.deleted_at IS NULL
+               WHERE ${entityCoveragePredicate('p')}
                  AND EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = p.id)`,
           );
           return withLinks.length > 0 ? Number(withLinks[0].count) / totalN : 0;
         }
         const withTimeline = await engine.executeRaw<{ count: string | number }>(
           `SELECT COUNT(*) AS count FROM pages p
-             WHERE p.type IN ('person', 'company', 'organization', 'entity')
-               AND p.deleted_at IS NULL
+             WHERE ${entityCoveragePredicate('p')}
                AND EXISTS (SELECT 1 FROM timeline_entries t WHERE t.page_id = p.id)`,
         );
         return withTimeline.length > 0 ? Number(withTimeline[0].count) / totalN : 0;

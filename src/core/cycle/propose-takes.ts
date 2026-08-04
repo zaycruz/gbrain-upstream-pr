@@ -480,6 +480,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
 
     // Load pages eligible for proposal. Source-scoped per BaseCyclePhase.
     const pages = await listCandidatePages(engine, scope, pageLimit);
+    const receiptSourceRefs = new Set<string>();
 
     if (opts.reporter) {
       opts.reporter.start('propose_takes.pages' as never, pages.length);
@@ -581,6 +582,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
           ],
         );
         result.proposals_inserted += inserted.length;
+        if (inserted.length > 0) receiptSourceRefs.add(page.slug);
       }
 
       // Memoize the empty case too. A page that extracted zero claims gets
@@ -630,6 +632,7 @@ class ProposeTakesPhase extends BaseCyclePhase {
         await writeReceipt(engine, {
           kind: 'takes.proposed',
           source_id: sourceIdForReceipt,
+          source_refs: [...receiptSourceRefs],
           run_id: proposalRunId,
           round: 'single',
           extracted_at: new Date().toISOString(),

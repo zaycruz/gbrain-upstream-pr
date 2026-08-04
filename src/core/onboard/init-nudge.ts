@@ -14,6 +14,7 @@
 // also short-circuits (CI/scripted callers see nothing).
 
 import type { BrainEngine } from '../engine.ts';
+import { entityCoveragePredicate } from '../entity-coverage.ts';
 
 const NUDGE_BUDGET_MS = 3000;
 
@@ -56,23 +57,20 @@ export async function runInitNudge(engine: BrainEngine): Promise<void> {
       ),
       engine.executeRaw<{ count: string | number }>(
         `SELECT COUNT(*) AS count FROM pages
-           WHERE type IN ('person', 'company', 'organization', 'entity')
-             AND deleted_at IS NULL`,
+           WHERE ${entityCoveragePredicate()}`,
         [],
         { signal: controller.signal },
       ),
       engine.executeRaw<{ count: string | number }>(
         `SELECT COUNT(*) AS count FROM pages p
-           WHERE p.type IN ('person', 'company', 'organization', 'entity')
-             AND p.deleted_at IS NULL
+           WHERE ${entityCoveragePredicate('p')}
              AND EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = p.id)`,
         [],
         { signal: controller.signal },
       ),
       engine.executeRaw<{ count: string | number }>(
         `SELECT COUNT(*) AS count FROM pages p
-           WHERE p.type IN ('person', 'company', 'organization', 'entity')
-             AND p.deleted_at IS NULL
+           WHERE ${entityCoveragePredicate('p')}
              AND EXISTS (SELECT 1 FROM timeline_entries t WHERE t.page_id = p.id)`,
         [],
         { signal: controller.signal },
