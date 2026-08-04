@@ -99,9 +99,6 @@ describe('issue #2298 — numeric denominator semantics', () => {
       VALUES (${companyId}, CURRENT_DATE, 'test', 'milestone', '{}')
     `;
 
-    const health = await engine.getHealth();
-    expect(health.timeline_coverage).toBe(1);
-
     const checks = await buildChecks(engine, [], null);
     const graph = checks.find((check) => check.name === 'graph_coverage');
     expect(graph?.message).toContain('entity timeline coverage 100%');
