@@ -14,6 +14,6 @@ export function entityCoveragePredicate(alias?: string): string {
   return [
     `${prefix}type IN ${ENTITY_TYPES_SQL}`,
     `${prefix}deleted_at IS NULL`,
-    `strpos(${prefix}slug, '/_notes/') = 0`,
+    `strpos('/' || ${prefix}slug || '/', '/_notes/') = 0`,
   ].join(' AND ');
 }

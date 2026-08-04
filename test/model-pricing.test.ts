@@ -80,7 +80,18 @@ describe('canonicalLookup — id normalization', () => {
     expect(canonicalLookup('gpt-5')).toBeUndefined();
   });
 
-  test('nested OpenRouter id → MISS (markup ≠ native pricing)', () => {
+  test('verified OpenRouter ids → exact provider-specific prices', () => {
+    expect(canonicalLookup('openrouter:deepseek/deepseek-chat')).toEqual({
+      input: 0.2574,
+      output: 1.0287,
+    });
+    expect(canonicalLookup('openrouter:google/gemini-3-flash-preview')).toEqual({
+      input: 0.5,
+      output: 3,
+    });
+  });
+
+  test('unpriced nested OpenRouter id → MISS (markup ≠ native pricing)', () => {
     expect(canonicalLookup('openrouter:anthropic/claude-sonnet-4-6')).toBeUndefined();
   });
 

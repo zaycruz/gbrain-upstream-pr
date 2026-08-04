@@ -17,6 +17,7 @@ import { homedir, tmpdir } from 'os';
 import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
 import { resolveAuditDir } from '../../src/core/audit/audit-writer.ts';
+import { withIsolatedAuditDir } from '../helpers/audit-dir-preload.ts';
 import {
   logContentSanityAssessment,
   readRecentContentSanityEvents,
@@ -39,13 +40,17 @@ describe('shared test-bootstrap audit isolation (#2823)', () => {
     expect(resolveAuditDir()).toBe(expected!);
   });
 
-  test('an oversize content-sanity event (the import-file.test.ts "borderline-slug" shape) never reaches the real ~/.gbrain/audit', () => {
+  test('an oversize content-sanity event (the import-file.test.ts "borderline-slug" shape) never reaches the real ~/.gbrain/audit', async () => {
     // Unique per test-run so a stale match from a prior manual run can
     // never produce a false pass.
     const sentinelSlug = `borderline-slug-audit-dir-preload-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     const realAuditDir = join(homedir(), '.gbrain', 'audit');
     const realAuditFile = join(realAuditDir, computeContentSanityAuditFilename());
+    const hostFileExisted = existsSync(realAuditFile);
+    const hostFileBefore = hostFileExisted
+      ? readFileSync(realAuditFile, 'utf8')
+      : undefined;
 
     // Reproduce the exact disposition the leaking fixture hits: body bytes
     // over DEFAULT_BYTES_BLOCK (500_000) with no junk pattern match →
@@ -58,22 +63,37 @@ describe('shared test-bootstrap audit isolation (#2823)', () => {
     expect(result.shouldSkipEmbed).toBe(true);
     expect(result.shouldQuarantine).toBe(false);
 
-    logContentSanityAssessment(sentinelSlug, 'default', result);
+    const priorAuditDir = process.env.GBRAIN_AUDIT_DIR;
+    let isolatedAuditDir: string | undefined;
+    await withIsolatedAuditDir(async (configuredAuditDir) => {
+      isolatedAuditDir = configuredAuditDir;
+      expect(resolveAuditDir()).toBe(configuredAuditDir);
+      logContentSanityAssessment(sentinelSlug, 'default', result);
 
-    // 1. The event IS readable back through the audit module — proves the
-    //    write succeeded and landed in the dir resolveAuditDir() reports.
-    const recent = readRecentContentSanityEvents(1);
-    const found = recent.find((e) => e.slug === sentinelSlug);
-    expect(found).toBeDefined();
-    expect(found?.event_type).toBe('soft_block');
+      // The configured isolated path receives the event, both on disk and
+      // through the same read helper that doctor uses.
+      const isolatedAuditFile = join(
+        configuredAuditDir,
+        computeContentSanityAuditFilename(),
+      );
+      expect(existsSync(isolatedAuditFile)).toBe(true);
+      expect(readFileSync(isolatedAuditFile, 'utf8')).toContain(sentinelSlug);
+      const recent = readRecentContentSanityEvents(1);
+      const found = recent.find((e) => e.slug === sentinelSlug);
+      expect(found).toBeDefined();
+      expect(found?.event_type).toBe('soft_block');
+    });
 
-    // 2. The real ~/.gbrain/audit content-sanity file for the current ISO
-    //    week — if it exists at all on this machine — does NOT contain the
-    //    sentinel slug. This is the actual regression: before the fix, this
-    //    assertion would fail on any machine with a real ~/.gbrain.
-    if (existsSync(realAuditFile)) {
-      const contents = readFileSync(realAuditFile, 'utf8');
-      expect(contents).not.toContain(sentinelSlug);
+    // withEnv restores the process-global override after the test body.
+    expect(process.env.GBRAIN_AUDIT_DIR).toBe(priorAuditDir);
+    expect(isolatedAuditDir).toBeDefined();
+    expect(existsSync(isolatedAuditDir!)).toBe(false);
+
+    // The real ~/.gbrain/audit file is unchanged byte-for-byte. In particular,
+    // do not delete or rewrite an existing user audit file as part of cleanup.
+    expect(existsSync(realAuditFile)).toBe(hostFileExisted);
+    if (hostFileExisted && hostFileBefore !== undefined) {
+      expect(readFileSync(realAuditFile, 'utf8')).toBe(hostFileBefore);
     }
   });
 });

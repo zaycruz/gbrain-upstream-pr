@@ -277,6 +277,76 @@ describe('hybridSearch — reranker enabled (reorder)', () => {
     // First result has the highest reranker score (0.5).
     expect((out[0] as any).rerank_score).toBe(0.5);
   });
+
+  test('promotes title matches after reranking before the alias hop', async () => {
+    const query = 'alpha keyword';
+    const titleExactSlug = 'notes/alpha';
+    const titlePhraseSlug = 'notes/beta';
+    const titleSlugs = new Set([titleExactSlug, titlePhraseSlug]);
+    const candidateSlugs = new Set([titleExactSlug, titlePhraseSlug, 'mail/vector-first']);
+
+    // Reuse the existing keyword fixture so the title matches and a non-title
+    // candidate enter the pool, changing only the titles for this isolated
+    // ordering assertion.
+    await engine.putPage(titleExactSlug, {
+      type: 'note',
+      title: 'Alpha Keyword',
+      compiled_truth: 'alpha keyword content one',
+    });
+    await engine.putPage(titlePhraseSlug, {
+      type: 'note',
+      title: 'Reference to Alpha Keyword Findings',
+      compiled_truth: 'alpha keyword content two',
+    });
+
+    try {
+      const baseline = await hybridSearch(engine, query, {
+        limit: 10,
+        autocut: false,
+        reranker: { enabled: false, topNIn: 30, topNOut: null },
+      });
+      const baselineTargetOrder = baseline.map(r => r.slug).filter(slug => candidateSlugs.has(slug));
+      expect(baselineTargetOrder).toEqual(expect.arrayContaining([
+        titleExactSlug,
+        titlePhraseSlug,
+        'mail/vector-first',
+      ]));
+
+      const reranked = await hybridSearch(engine, query, {
+        limit: 10,
+        autocut: false,
+        reranker: {
+          enabled: true,
+          topNIn: 30,
+          topNOut: null,
+          rerankerFn: async (input: RerankInput): Promise<RerankResult[]> =>
+            input.documents.map((_, i) => ({
+              index: input.documents.length - 1 - i,
+              relevanceScore: 1 - i * 0.1,
+            })),
+        },
+      });
+      const rerankedTargetOrder = reranked.map(r => r.slug).filter(slug => candidateSlugs.has(slug));
+      const rerankedBeforePromotion = [...baselineTargetOrder].reverse();
+      const expectedOrder = [
+        ...rerankedBeforePromotion.filter(slug => titleSlugs.has(slug)),
+        ...rerankedBeforePromotion.filter(slug => !titleSlugs.has(slug)),
+      ];
+
+      expect(rerankedTargetOrder).toEqual(expectedOrder);
+    } finally {
+      await engine.putPage(titleExactSlug, {
+        type: 'note',
+        title: 'Alpha Note',
+        compiled_truth: 'alpha keyword content one',
+      });
+      await engine.putPage(titlePhraseSlug, {
+        type: 'note',
+        title: 'Beta Note',
+        compiled_truth: 'alpha keyword content two',
+      });
+    }
+  });
 });
 
 describe('hybridSearch — fail-open contract end-to-end', () => {

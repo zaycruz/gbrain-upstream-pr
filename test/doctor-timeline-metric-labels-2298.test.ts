@@ -91,7 +91,10 @@ describe('issue #2298 — numeric denominator semantics', () => {
       INSERT INTO pages (slug, source_id, type, title, compiled_truth, frontmatter, content_hash, created_at, updated_at)
       VALUES
         ('companies/acme', 'default', 'company', 'Acme', '', '{}', 'canonical-company', now(), now()),
-        ('agents/atlas/_notes/companies/acme', 'default', 'company', 'Acme notes', '', '{}', 'agent-notes', now(), now())
+        ('agents/atlas/_notes/companies/acme', 'default', 'company', 'Acme notes', '', '{}', 'agent-notes', now(), now()),
+        ('companies/acme/_notes', 'default', 'company', 'Terminal notes', '', '{}', 'terminal-notes', now(), now()),
+        ('_notes/companies/acme', 'default', 'company', 'Leading notes', '', '{}', 'leading-notes', now(), now()),
+        ('_notes', 'default', 'company', 'Notes root', '', '{}', 'notes-root', now(), now())
     `;
     const companyId = (await sql`SELECT id FROM pages WHERE slug = 'companies/acme'`)[0].id as number;
     await sql`

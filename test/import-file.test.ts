@@ -4,6 +4,7 @@ import { join } from 'path';
 import { importFile, importFromContent } from '../src/core/import-file.ts';
 import type { BrainEngine } from '../src/core/engine.ts';
 import { MARKDOWN_CHUNKER_VERSION } from '../src/core/chunkers/recursive.ts';
+import { withIsolatedAuditDir } from './helpers/audit-dir-preload.ts';
 
 const TMP = join(import.meta.dir, '.tmp-import-test');
 
@@ -429,14 +430,16 @@ Content to chunk but not embed.
   });
 
   test('accepts in-memory content just under MAX_FILE_SIZE', async () => {
-    // Sanity: content exactly at the limit must still import. If this test
-    // fails, the guard is off-by-one and will break legitimate large imports.
-    const content = '---\ntitle: Borderline\n---\n' + 'x'.repeat(4_900_000);
+    await withIsolatedAuditDir(async () => {
+      // Sanity: content exactly at the limit must still import. If this test
+      // fails, the guard is off-by-one and will break legitimate large imports.
+      const content = '---\ntitle: Borderline\n---\n' + 'x'.repeat(4_900_000);
 
-    const engine = mockEngine();
-    const result = await importFromContent(engine, 'borderline-slug', content, { noEmbed: true });
+      const engine = mockEngine();
+      const result = await importFromContent(engine, 'borderline-slug', content, { noEmbed: true });
 
-    expect(result.status).toBe('imported');
+      expect(result.status).toBe('imported');
+    });
   });
 
   test('assigns sequential chunk_index values', async () => {

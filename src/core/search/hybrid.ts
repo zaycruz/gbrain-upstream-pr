@@ -394,6 +394,35 @@ export function applyTitleBoost(
 export const DEFAULT_TITLE_BOOST = 1.25;
 
 /**
+ * Promote title-phrase matches without changing either group's order.
+ *
+ * This runs after reranking so the reranker's ordering remains authoritative
+ * within title matches and non-matches. Unlike the score boost, this stage is
+ * intentionally not floor-gated: a valid name match is a retrieval invariant,
+ * not a score adjustment. `isTitlePhraseMatch` supplies the strict token-boundary
+ * guard. The stable partition leaves score attribution untouched.
+ */
+export function promoteTitleMatches(
+  results: SearchResult[],
+  query: string,
+): SearchResult[] {
+  if (!query || results.length < 2) return results;
+
+  const titleMatches: SearchResult[] = [];
+  const nonTitleMatches: SearchResult[] = [];
+  for (const result of results) {
+    if (isTitlePhraseMatch(query, result.title)) {
+      titleMatches.push(result);
+    } else {
+      nonTitleMatches.push(result);
+    }
+  }
+
+  if (titleMatches.length === 0 || nonTitleMatches.length === 0) return results;
+  return [...titleMatches, ...nonTitleMatches];
+}
+
+/**
  * v0.42.x — Life Chronicle (#2390) E1 temporal recall arm. On temporal queries
  * (the caller gates this on recency !== 'off'), give chronicle `event`/`diary`
  * pages a bounded boost so the timeline surfaces for "what happened…" / "when
@@ -1628,10 +1657,14 @@ export async function hybridSearch(
     ? await applyReranker(query, deduped, rerankerOpts as any)
     : deduped;
 
+  // Stable title-match promotion runs after rerank and before the alias hop.
+  // The reranker's relative ordering is preserved within each group.
+  const titlePromoted = promoteTitleMatches(reranked, query);
+
   // T3 — free-text alias hop. Runs AFTER rerank so a query that is a page's
   // declared chosen name reliably surfaces that page regardless of how the
   // reranker scored body chunks. Fail-open on pre-v110 brains.
-  const aliasHopped = await applyAliasHop(engine, reranked, query, {
+  const aliasHopped = await applyAliasHop(engine, titlePromoted, query, {
     sourceId: opts?.sourceId,
     sourceIds: opts?.sourceIds,
   });

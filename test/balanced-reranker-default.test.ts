@@ -13,6 +13,7 @@ import { MODE_BUNDLES } from '../src/core/search/mode.ts';
 import { applyReranker, type RerankerOpts } from '../src/core/search/rerank.ts';
 import type { SearchResult } from '../src/core/types.ts';
 import { RerankError } from '../src/core/ai/gateway.ts';
+import { withIsolatedAuditDir } from './helpers/audit-dir-preload.ts';
 
 describe('Mode bundle defaults (D6)', () => {
   test('balanced.reranker_enabled is true (the v0.36.0.0 flip)', () => {
@@ -65,18 +66,20 @@ describe('applyReranker — fail-open contract (D6 + R8)', () => {
   });
 
   test('reranker enabled + thrown error: returns input order unchanged', async () => {
-    const results = makeResults(5);
-    const opts: RerankerOpts = {
-      enabled: true,
-      topNIn: 30,
-      topNOut: null,
-      rerankerFn: async () => {
-        throw new RerankError('missing ZEROENTROPY_API_KEY', 'auth');
-      },
-    };
-    const out = await applyReranker('test query', results, opts);
-    // Fail-open: original order preserved.
-    expect(out.map(r => r.slug)).toEqual(results.map(r => r.slug));
+    await withIsolatedAuditDir(async () => {
+      const results = makeResults(5);
+      const opts: RerankerOpts = {
+        enabled: true,
+        topNIn: 30,
+        topNOut: null,
+        rerankerFn: async () => {
+          throw new RerankError('missing ZEROENTROPY_API_KEY', 'auth');
+        },
+      };
+      const out = await applyReranker('test query', results, opts);
+      // Fail-open: original order preserved.
+      expect(out.map(r => r.slug)).toEqual(results.map(r => r.slug));
+    });
   });
 
   test('reranker enabled + happy path: reorders by relevance_score', async () => {
