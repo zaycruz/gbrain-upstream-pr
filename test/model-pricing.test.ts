@@ -95,6 +95,17 @@ describe('canonicalLookup — id normalization', () => {
     expect(canonicalLookup('openrouter:anthropic/claude-sonnet-4-6')).toBeUndefined();
   });
 
+  test('OpenRouter routes have explicit provider pricing for bounded jobs', () => {
+    expect(canonicalLookup('openrouter:openai/gpt-5.6-terra')).toEqual({
+      input: 1.0,
+      output: 6.0,
+    });
+    expect(canonicalLookup('openrouter:deepseek/deepseek-v4-pro')).toEqual({
+      input: 0.435,
+      output: 0.87,
+    });
+  });
+
   test('slash-bearing model tail kept as exact key (together Llama)', () => {
     expect(canonicalLookup('together:meta-llama/Llama-3.3-70B-Instruct-Turbo')).toEqual({
       input: 0.88,

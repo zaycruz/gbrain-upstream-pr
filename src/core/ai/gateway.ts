@@ -563,7 +563,13 @@ export async function reconfigureGatewayWithEngine(engine: BrainEngine): Promise
   // the resolveModel chain).
   const tierModels: string[] = [];
   for (const tier of ['utility', 'reasoning', 'deep', 'subagent'] as const) {
-    tierModels.push(await resolveModel(engine, { tier, fallback: TIER_DEFAULTS[tier] }));
+    tierModels.push(
+      await resolveModel(engine, {
+        ...(tier === 'subagent' ? { configKey: 'models.subagent' } : {}),
+        tier,
+        fallback: TIER_DEFAULTS[tier],
+      }),
+    );
   }
 
   _config = { ...cfg, expansion_model: expansionFull, chat_model: chatFull };

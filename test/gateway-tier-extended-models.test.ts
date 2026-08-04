@@ -60,4 +60,19 @@ describe('reconfigureGatewayWithEngine — tier models extend the allowlist', ()
     );
     expect(validateModelId('anthropic:claude-hypothetical-10').ok).toBe(true);
   });
+
+  test('models.subagent overrides models.default during eager tier registration', async () => {
+    configureGateway({
+      embedding_model: 'openai:text-embedding-3-large',
+      embedding_dimensions: 1536,
+      env: { ANTHROPIC_API_KEY: 'sk-fake', OPENAI_API_KEY: 'sk-fake' },
+    });
+    await reconfigureGatewayWithEngine(
+      stubEngine({
+        'models.default': 'anthropic:claude-hypothetical-default',
+        'models.subagent': 'anthropic:claude-hypothetical-subagent',
+      }),
+    );
+    expect(validateModelId('anthropic:claude-hypothetical-subagent').ok).toBe(true);
+  });
 });

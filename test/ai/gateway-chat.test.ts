@@ -5,7 +5,7 @@
  *   - chat() resolves provider:model strings + aliases
  *   - assertTouchpoint surfaces chat-only providers correctly
  *   - getChatModel() default + override
- *   - chat_fallback_chain plumbing (config plumbing only — chatWithFallback ships in commit 3)
+ *   - chat_fallback_chain + chatWithFallback provider failover
  *   - new openai-compat recipes (deepseek, groq, together) parse + resolve
  *   - new ChatTouchpoint shape: supports_subagent_loop, supports_prompt_cache
  *   - mapStopReason via the chat() boundary (mocked client) — refusal / content_filter / tool_calls / end / length
@@ -27,8 +27,8 @@ import {
   parseExpansionResponse,
   chatWithFallback,
   chat,
-  __setGenerateTextTransportForTests,
   __setChatTransportForTests,
+  __setGenerateTextTransportForTests,
 } from '../../src/core/ai/gateway.ts';
 import { parseModelId, resolveRecipe, assertTouchpoint } from '../../src/core/ai/model-resolver.ts';
 import { AIConfigError, AITransientError } from '../../src/core/ai/errors.ts';
@@ -412,6 +412,7 @@ describe('chat touchpoint — gateway config plumbing', () => {
       __setChatTransportForTests(null);
     }
   });
+
   test('isAvailable("chat") returns true when default Anthropic + key present', () => {
     configureGateway({ env: { ANTHROPIC_API_KEY: 'fake' } });
     expect(isAvailable('chat')).toBe(true);

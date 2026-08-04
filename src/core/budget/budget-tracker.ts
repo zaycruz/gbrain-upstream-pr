@@ -156,6 +156,12 @@ const FREE_LOCAL_EMBED_PROVIDERS: ReadonlySet<string> = new Set([
   'llama-server',
 ]);
 
+/** Local chat inference costs electricity rather than token fees. */
+const FREE_LOCAL_CHAT_PROVIDERS: ReadonlySet<string> = new Set([
+  'ollama',
+  'llama-server',
+]);
+
 /**
  * Look up `modelId` in the chat or embedding pricing maps. Returns a
  * per-1M-token price tuple, or null when unknown.
@@ -220,7 +226,15 @@ function lookupPricing(modelId: string, kind: BudgetKind): ModelPricing | null {
   // above is only the bare-keyed Claude view.
   const canon = canonicalLookup(modelId);
   if (canon) return canon;
+  if (kind === 'chat' && providerId && FREE_LOCAL_CHAT_PROVIDERS.has(providerId)) {
+    return { input: 0, output: 0 };
+  }
   return null;
+}
+
+/** Return true when the tracker can price a model for the requested kind. */
+export function isModelPriceable(modelId: string, kind: BudgetKind): boolean {
+  return lookupPricing(modelId, kind) !== null;
 }
 
 function costForUsage(modelId: string, inputTokens: number, outputTokens: number, kind: BudgetKind): number | null {

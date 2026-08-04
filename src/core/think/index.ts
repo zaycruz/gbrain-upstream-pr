@@ -25,7 +25,7 @@ import { buildThinkSystemPrompt, buildThinkUserMessage } from './prompt.ts';
 import { resolveCitations, type ParsedCitation } from './cite-render.ts';
 import { resolveOwnerHolder } from '../owner-holder.ts';
 import { resolveModel } from '../model-config.ts';
-import { chat as gatewayChat, probeChatModel, type ChatResult } from '../ai/gateway.ts';
+import { chatWithFallback, probeChatModel, type ChatResult } from '../ai/gateway.ts';
 import { AIConfigError } from '../ai/errors.ts';
 import { normalizeModelId } from '../model-id.ts';
 import { hasAnthropicKey } from '../ai/anthropic-key.ts';
@@ -751,11 +751,14 @@ async function tryBuildGatewayClient(
 
       let result: ChatResult;
       try {
-        result = await gatewayChat({
+        result = await chatWithFallback({
           model: modelStr,
           system,
           messages,
           maxTokens: params.max_tokens,
+        }, {
+          modelChain: opts.explicitModel ? [modelStr] : undefined,
+          fallbackOnConfigError: !opts.explicitModel,
         });
       } catch (e) {
         // AIConfigError at chat time = e.g. key revoked mid-run. For an EXPLICIT
