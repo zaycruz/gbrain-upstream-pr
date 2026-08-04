@@ -9,10 +9,11 @@
  *                               per-task overrides, alias map, and source-of-truth
  *                               column (default / config / env).
  *
- *   `gbrain models doctor`    — opt-in probe. Fires a 1-token `gateway.chat()`
- *                               call against each configured chat / expansion
- *                               model and reports reachability with the
- *                               provider's error string. Catches the bug class
+ *   `gbrain models doctor`    — opt-in probe. Fires a 1-token
+ *                               `gateway.chatWithFallback()` call pinned to
+ *                               each configured chat / expansion model
+ *                               and reports reachability with the provider's
+ *                               error string. Catches the bug class
  *                               that motivated v0.31.12 (the v0.31.6 chat
  *                               default 404'd silently against the Anthropic
  *                               API).
@@ -503,19 +504,21 @@ async function probeEmbeddingReachability(): Promise<ProbeResult | null> {
   }
 }
 
-async function probeModel(modelStr: string, touchpoint: 'chat' | 'expansion'): Promise<ProbeResult> {
+export async function probeModel(modelStr: string, touchpoint: 'chat' | 'expansion'): Promise<ProbeResult> {
   const start = Date.now();
   try {
-    const { chat } = await import('../core/ai/gateway.ts');
+    const { chatWithFallback } = await import('../core/ai/gateway.ts');
     // Use AbortController so the 5s timeout doesn't hang on a stuck network.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(new Error('probe timed out after 5s')), 5000);
     try {
-      await chat({
+      await chatWithFallback({
         model: modelStr,
         messages: [{ role: 'user', content: '.' }],
         maxTokens: 1,
         abortSignal: controller.signal,
+      }, {
+        modelChain: [modelStr],
       });
       return { model: modelStr, touchpoint, status: 'ok', message: 'reachable', elapsed_ms: Date.now() - start };
     } finally {
