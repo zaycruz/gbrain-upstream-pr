@@ -17,7 +17,12 @@
 
 import { describe, test, expect } from 'bun:test';
 import { __thinkAdapter } from '../src/core/think/index.ts';
-import { resetGateway } from '../src/core/ai/gateway.ts';
+import {
+  __setChatTransportForTests,
+  configureGateway,
+  resetGateway,
+} from '../src/core/ai/gateway.ts';
+import { AITransientError } from '../src/core/ai/errors.ts';
 import { withEnv, emptyHome } from './helpers/with-env.ts';
 
 describe('think gateway adapter — response shape conversion', () => {
@@ -183,6 +188,45 @@ describe('think gateway adapter — #1698 slash form + explicit-model fork', () 
         await expect(client!.create(params)).rejects.toThrow();
       },
     );
+  });
+
+  test('explicit model transient failure does not use the configured fallback', async () => {
+    await withEnv({ ANTHROPIC_API_KEY: 'sk-test-fake' }, async () => {
+      const primary = 'anthropic:claude-sonnet-4-6';
+      const fallback = 'deepseek:deepseek-chat';
+      const calls: string[] = [];
+      configureGateway({
+        chat_model: primary,
+        chat_fallback_chain: [fallback],
+        env: { ANTHROPIC_API_KEY: 'sk-test-fake', DEEPSEEK_API_KEY: 'sk-test-fake' },
+      });
+      __setChatTransportForTests(async (opts) => {
+        calls.push(opts.model ?? '');
+        if (opts.model === primary) throw new AITransientError('provider overloaded');
+        return {
+          text: 'fallback response',
+          blocks: [{ type: 'text', text: 'fallback response' }],
+          stopReason: 'end',
+          usage: { input_tokens: 1, output_tokens: 1, cache_read_tokens: 0, cache_creation_tokens: 0 },
+          model: opts.model ?? '',
+          providerId: 'deepseek',
+        };
+      });
+
+      try {
+        const client = await __thinkAdapter.tryBuildGatewayClient(primary, { explicitModel: true });
+        expect(client).not.toBeNull();
+        await expect(client!.create({
+          model: primary,
+          max_tokens: 16,
+          messages: [{ role: 'user', content: 'hi' }],
+        } as any)).rejects.toThrow(/provider overloaded/);
+        expect(calls).toEqual([primary]);
+      } finally {
+        __setChatTransportForTests(null);
+        resetGateway();
+      }
+    });
   });
 });
 

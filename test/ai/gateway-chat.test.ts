@@ -29,7 +29,6 @@ import {
   chat,
   __setChatTransportForTests,
   __setGenerateTextTransportForTests,
-  __setChatTransportForTests,
 } from '../../src/core/ai/gateway.ts';
 import { parseModelId, resolveRecipe, assertTouchpoint } from '../../src/core/ai/model-resolver.ts';
 import { AIConfigError, AITransientError } from '../../src/core/ai/errors.ts';
@@ -377,6 +376,7 @@ describe('chat touchpoint — gateway config plumbing', () => {
       __setChatTransportForTests(null);
     }
   });
+
   test('chat applies the configured fallback to provider configuration failures', async () => {
     configureGateway({
       chat_model: 'anthropic:claude-sonnet-4-6',

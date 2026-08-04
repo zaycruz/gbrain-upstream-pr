@@ -106,10 +106,6 @@ export const CANONICAL_PRICING: Record<string, ModelPricing> = {
   // DeepSeek v4 (verified 2026-07-27 at api-docs.deepseek.com): cache-miss rates.
   'deepseek:deepseek-v4-flash':           { input:  0.14, output:  0.28 },
   'deepseek:deepseek-v4-pro':             { input:  0.435, output: 0.87 },
-  // OpenRouter rates are provider-specific exact keys; never infer these from
-  // native vendor prices. Verified against /api/v1/models on 2026-08-04.
-  'openrouter:deepseek/deepseek-chat':     { input: 0.2574, output: 1.0287 },
-  'openrouter:deepseek/deepseek-v4-pro':   { input: 0.435,  output: 0.87 },
   'openrouter:google/gemini-3-flash-preview': { input: 0.50, output: 3.00 },
 };
 

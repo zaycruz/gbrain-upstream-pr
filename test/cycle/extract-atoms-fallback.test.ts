@@ -113,4 +113,16 @@ describe('extract_atoms provider fallback', () => {
     expect(result.details.atoms_extracted).toBe(2);
     expect(calls).toEqual([primary, fallback, fallback]);
   });
+
+  test('rejects an unpriced model chain instead of silently skipping the workload', async () => {
+    const unpricedModel = 'custom:unpriced-extract-model';
+    await engine.setConfig('models.dream.extract_atoms', unpricedModel);
+
+    await expect(runPhaseExtractAtoms(engine, {
+      sourceId: 'default',
+      _pages: [{ slug: 'notes/unpriced', content: 'unpriced model page', contentHash: 'hash-unpriced' }],
+      _transcripts: [],
+      _chat: async () => response('[]', unpricedModel),
+    })).rejects.toThrow(/no model in the configured chain has a pricing entry/);
+  });
 });

@@ -757,6 +757,7 @@ async function tryBuildGatewayClient(
           messages,
           maxTokens: params.max_tokens,
         }, {
+          modelChain: opts.explicitModel ? [modelStr] : undefined,
           fallbackOnConfigError: !opts.explicitModel,
         });
       } catch (e) {

@@ -392,8 +392,8 @@ function getNonBlankLines(body: string, headCap?: number): string[] {
  * window) and `scorePatternFull` (whole body) delegate here so the
  * quick_reject + regex loop lives in one place. Reused by
  * `parseConversation`'s fallback path which pre-splits ONCE and
- * passes the array to every candidate, avoiding redundant body splits
- * on each fallback pass.
+ * passes the array to all 17 candidates (saves 16 redundant body
+ * splits per fallback pass).
  */
 function scoreFromLines(
   lines: readonly string[],

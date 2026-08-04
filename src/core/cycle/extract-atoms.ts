@@ -52,6 +52,7 @@ import type { PhaseResult } from '../cycle.ts';
 import type { GBrainConfig } from '../config.ts';
 import type { ProgressReporter } from '../progress.ts';
 import { chatWithFallback, chat as gatewayChat, withBudgetTracker } from '../ai/gateway.ts';
+import { AIConfigError } from '../ai/errors.ts';
 import { BudgetExhausted, BudgetTracker, isModelPriceable } from '../budget/budget-tracker.ts';
 import { writeReceipt } from '../extract/receipt-writer.ts';
 import { upsertExtractRollup } from '../extract/rollup-writer.ts';
@@ -599,18 +600,23 @@ export async function runPhaseExtractAtoms(
   } catch {
     // Keep safe defaults: Haiku + $0.30.
   }
-  // A cost cap is only meaningful for a model the tracker can price.
-  // BudgetTracker.reserve() hard-fails with BudgetExhausted(reason:'no_pricing')
-  // when the model is absent from the pricing maps AND a cap is set; with no cap
-  // it warns once and proceeds.
-  const priceable = isModelPriceable(extractModel, 'chat');
-  if (!priceable) {
-    console.error(
-      `[extract_atoms] model "${extractModel}" is not in the pricing maps; ` +
-        `running without a cost gate (a cap cannot be enforced on an unpriced model).`,
+  // A cost cap is enforceable only for models with known pricing. Keep the cap
+  // active by excluding unpriced fallbacks instead of silently running them
+  // without the operator's configured cost control.
+  const configuredExtractModelChain = await resolveExtractionModelChain(engine, extractModel, opts._loadConfig);
+  const unpricedModels = configuredExtractModelChain.filter(model => !isModelPriceable(model, 'chat'));
+  const extractModelChain = configuredExtractModelChain.filter(model => isModelPriceable(model, 'chat'));
+  if (extractModelChain.length === 0) {
+    throw new AIConfigError(
+      `extract_atoms: no model in the configured chain has a pricing entry (${unpricedModels.join(', ')}). ` +
+        'Add model pricing or configure a priced extraction model.',
     );
   }
-  const extractModelChain = await resolveExtractionModelChain(engine, extractModel, opts._loadConfig);
+  if (unpricedModels.length > 0) {
+    console.error(
+      `[extract_atoms] excluding unpriced fallback models from the cost-capped run: ${unpricedModels.join(', ')}`,
+    );
+  }
   const failedExtractModels = new Set<string>();
   const transientExtractFailures = new Map<string, number>();
   const budgetTracker = new BudgetTracker({
