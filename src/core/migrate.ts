@@ -5724,6 +5724,21 @@ export const MIGRATIONS: Migration[] = [
         ON take_proposals (source_id, page_slug, content_hash, prompt_version, md5(claim_text));
     `,
   },
+  {
+    version: 126,
+    name: 'minion_idempotency_active_jobs',
+    // Production already permits duplicate terminal rows for recurring work.
+    // Queue.add serializes same-key submissions and enforces completed/failed
+    // durable dedup before insert; this index closes races among live rows.
+    idempotent: true,
+    sql: `
+      DROP INDEX IF EXISTS uniq_minion_jobs_idempotency;
+      CREATE UNIQUE INDEX uniq_minion_jobs_idempotency
+        ON minion_jobs (idempotency_key)
+        WHERE idempotency_key IS NOT NULL
+          AND status NOT IN ('completed','failed','dead','cancelled');
+    `,
+  },
 ];
 
 export const LATEST_VERSION = MIGRATIONS.length > 0
