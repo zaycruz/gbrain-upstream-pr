@@ -22,6 +22,8 @@ import {
   AGGREGATOR_KINDS,
   type SchemaPackManifest,
 } from '../src/core/schema-pack/index.ts';
+import { expandClosure } from '../src/core/schema-pack/closure.ts';
+import { resolvePack } from '../src/core/schema-pack/registry.ts';
 
 const PACK_NAMES = [
   'gbrain-creator',
@@ -204,8 +206,101 @@ describe('v0.41 T4: gbrain-everything meta-pack shape', () => {
     expect(engineerBorrow?.types).toContain('learning');
   });
 
-  test('declares NO own page_types (everything via extends + borrow)', () => {
-    expect(pack.page_types).toEqual([]);
+  test('declares full canonical overrides for legacy aliases', () => {
+    expect(pack.page_types.map((p) => p.name)).toEqual([
+      'learning',
+      'architecture',
+      'concept',
+      'diary',
+      'source',
+      'project',
+      'note',
+    ]);
+    const metadata = new Map(pack.page_types.map((type) => [type.name, type]));
+    expect(metadata.get('learning')).toMatchObject({
+      primitive: 'annotation',
+      path_prefixes: ['learnings/', 'engineering/learnings/'],
+      extractable: false,
+    });
+    expect(metadata.get('architecture')).toMatchObject({
+      primitive: 'media',
+      path_prefixes: ['wiki/architecture/'],
+      extractable: false,
+    });
+    expect(metadata.get('concept')).toMatchObject({
+      primitive: 'concept',
+      path_prefixes: ['wiki/concepts/', 'wiki/concept/'],
+      extractable: true,
+    });
+    expect(metadata.get('diary')).toMatchObject({
+      primitive: 'temporal',
+      path_prefixes: ['life/diary/'],
+      extractable: false,
+    });
+    expect(metadata.get('source')).toMatchObject({
+      primitive: 'media',
+      path_prefixes: ['sources/', 'source/'],
+      extractable: true,
+    });
+    expect(metadata.get('project')).toMatchObject({
+      primitive: 'concept',
+      path_prefixes: ['projects/', 'project/'],
+      extractable: false,
+    });
+    expect(metadata.get('note')).toMatchObject({
+      primitive: 'concept',
+      path_prefixes: ['notes/', 'note/'],
+      extractable: true,
+    });
+  });
+
+  test('resolved pack recognizes all observed legacy aliases and preserves canonical metadata', async () => {
+    const resolved = await resolvePack(pack, async (name) => loadPack(name));
+    const legacyToCanonical = {
+      lesson: 'learning',
+      decision: 'note',
+      knowledge: 'concept',
+      memory: 'note',
+      journal: 'diary',
+      ADR: 'architecture',
+      index: 'note',
+      'run-log': 'note',
+      design: 'architecture',
+      'ops-note': 'note',
+      policy: 'note',
+      'release-evidence': 'source',
+      requirements: 'project',
+      schema: 'architecture',
+      preference: 'note',
+    } as const;
+
+    for (const [legacy, canonical] of Object.entries(legacyToCanonical)) {
+      const pageType = resolved.manifest.page_types.find(
+        (p) => p.name === canonical,
+      );
+      expect(pageType?.aliases).toContain(legacy);
+      const closure = expandClosure(legacy, resolved.alias_graph);
+      expect(closure).toContain(canonical);
+      expect(
+        closure.filter((type) =>
+          resolved.manifest.page_types.some((p) => p.name === type),
+        ),
+      ).toEqual([canonical]);
+    }
+
+    for (const type of pack.page_types) {
+      expect(
+        resolved.manifest.page_types.find(
+          (candidate) => candidate.name === type.name,
+        ),
+      ).toMatchObject({
+        name: type.name,
+        primitive: type.primitive,
+        path_prefixes: type.path_prefixes,
+        extractable: type.extractable,
+        expert_routing: type.expert_routing,
+      });
+    }
   });
 
   test('explicitly re-declares phases from creator (borrow_from does NOT borrow phases)', () => {

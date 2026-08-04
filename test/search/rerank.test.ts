@@ -20,6 +20,7 @@ import { RerankError, type RerankResult } from '../../src/core/ai/gateway.ts';
 import { readRecentRerankFailures } from '../../src/core/rerank-audit.ts';
 import type { SearchResult } from '../../src/core/types.ts';
 import { withEnv } from '../helpers/with-env.ts';
+import { withIsolatedAuditDir } from '../helpers/audit-dir-preload.ts';
 
 function makeResult(slug: string, score: number, chunk: string): SearchResult {
   return {
@@ -148,21 +149,23 @@ describe('applyReranker — fail-open on every RerankError reason', () => {
     'payload_too_large' as const,
     'unknown' as const,
   ])('fail-open on RerankError reason=%s', async (reason) => {
-    const results = [
-      makeResult('a', 1.0, 'a'),
-      makeResult('b', 0.5, 'b'),
-    ];
-    const opts: RerankerOpts = {
-      enabled: true,
-      topNIn: 2,
-      topNOut: null,
-      rerankerFn: async () => {
-        throw new RerankError('forced', reason);
-      },
-    };
-    // Must not throw; must return input unchanged.
-    const out = await applyReranker('q', results, opts);
-    expect(out).toEqual(results);
+    await withIsolatedAuditDir(async () => {
+      const results = [
+        makeResult('a', 1.0, 'a'),
+        makeResult('b', 0.5, 'b'),
+      ];
+      const opts: RerankerOpts = {
+        enabled: true,
+        topNIn: 2,
+        topNOut: null,
+        rerankerFn: async () => {
+          throw new RerankError('forced', reason);
+        },
+      };
+      // Must not throw; must return input unchanged.
+      const out = await applyReranker('q', results, opts);
+      expect(out).toEqual(results);
+    });
   });
 
   test('missing gateway reranker API key fail-opens and audits auth', async () => {
@@ -196,17 +199,19 @@ describe('applyReranker — fail-open on every RerankError reason', () => {
   });
 
   test('fail-open on non-RerankError throw too', async () => {
-    const results = [makeResult('a', 1.0, 'a')];
-    const opts: RerankerOpts = {
-      enabled: true,
-      topNIn: 1,
-      topNOut: null,
-      rerankerFn: async () => {
-        throw new Error('arbitrary');
-      },
-    };
-    const out = await applyReranker('q', results, opts);
-    expect(out).toEqual(results);
+    await withIsolatedAuditDir(async () => {
+      const results = [makeResult('a', 1.0, 'a')];
+      const opts: RerankerOpts = {
+        enabled: true,
+        topNIn: 1,
+        topNOut: null,
+        rerankerFn: async () => {
+          throw new Error('arbitrary');
+        },
+      };
+      const out = await applyReranker('q', results, opts);
+      expect(out).toEqual(results);
+    });
   });
 
   test('fail-open on malformed reranker response (empty results array)', async () => {

@@ -21,9 +21,9 @@
  * Fix: set `GBRAIN_AUDIT_DIR` once, globally, before any test file loads,
  * to a fresh `mkdtemp` directory unique to THIS process. Each
  * `scripts/run-unit-shard.sh` shard is its own `bun test` process, so each
- * shard gets its own scratch dir automatically — no cross-shard collision,
- * no manual cleanup needed (short-lived test process; OS reaps tmp, same
- * tradeoff `test/helpers/with-env.ts`'s `emptyHome()` documents).
+ * shard gets its own scratch dir automatically — no cross-shard collision.
+ * The process-exit cleanup below removes this fallback directory; emitting
+ * tests should use `withIsolatedAuditDir` for per-test restoration and cleanup.
  *
  * Individual test files that already manage their own isolated
  * `GBRAIN_AUDIT_DIR` per-test via `withEnv` (e.g.
@@ -38,13 +38,33 @@
  * Imported by `bunfig.toml` via
  * `preload = [..., "./test/helpers/audit-dir-preload.ts"]`.
  */
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { withEnv } from './with-env.ts';
+
+/**
+ * Run one audit-emitting test with its own audit directory. The environment
+ * override is restored by `withEnv`, and the directory is removed even when
+ * the test body throws.
+ */
+export async function withIsolatedAuditDir<T>(
+  body: (auditDir: string) => T | Promise<T>,
+): Promise<T> {
+  const auditDir = mkdtempSync(join(tmpdir(), 'gbrain-test-audit-'));
+  try {
+    return await withEnv({ GBRAIN_AUDIT_DIR: auditDir }, () => body(auditDir));
+  } finally {
+    rmSync(auditDir, { recursive: true, force: true });
+  }
+}
 
 if (!process.env.GBRAIN_AUDIT_DIR) {
   const dir = mkdtempSync(join(tmpdir(), 'gbrain-test-audit-'));
   process.env.GBRAIN_AUDIT_DIR = dir;
+  process.once('exit', () => {
+    rmSync(dir, { recursive: true, force: true });
+  });
   if (process.env.GBRAIN_DEBUG_PRELOAD === '1') {
     console.error(`[audit-dir-preload] GBRAIN_AUDIT_DIR=${dir}`);
   }

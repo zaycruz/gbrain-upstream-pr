@@ -5,7 +5,11 @@
  */
 
 import { describe, test, expect } from 'bun:test';
-import { applyTitleBoost, DEFAULT_TITLE_BOOST } from '../../src/core/search/hybrid.ts';
+import {
+  applyTitleBoost,
+  DEFAULT_TITLE_BOOST,
+  promoteTitleMatches,
+} from '../../src/core/search/hybrid.ts';
 import type { SearchResult } from '../../src/core/types.ts';
 
 function mk(slug: string, title: string, score: number): SearchResult {
@@ -52,5 +56,52 @@ describe('applyTitleBoost', () => {
     const r = mk('projects/mingtang', 'Greek Amphitheater', 0.8);
     applyTitleBoost([r], '', DEFAULT_TITLE_BOOST);
     expect(r.score).toBe(0.8);
+  });
+});
+
+describe('promoteTitleMatches', () => {
+  test('promotes exact and contiguous title matches stably', () => {
+    const bodyFirst = mk('notes/body-first', 'Unrelated Reference', 0.9);
+    const exact = mk('projects/exact', 'Indoor Greek', 0.2);
+    const bodyMiddle = mk('notes/body-middle', 'Another Reference', 0.8);
+    const contiguous = mk('projects/contiguous', 'The Mingtang — Indoor Greek Amphitheater', 0.1);
+    const bodyLast = mk('notes/body-last', 'Final Reference', 0.7);
+    const results = [bodyFirst, exact, bodyMiddle, contiguous, bodyLast];
+    for (const [index, result] of results.entries()) {
+      result.rerank_score = index / 10;
+    }
+
+    const out = promoteTitleMatches(results, 'indoor greek');
+
+    expect(out.map(r => r.slug)).toEqual([
+      'projects/exact',
+      'projects/contiguous',
+      'notes/body-first',
+      'notes/body-middle',
+      'notes/body-last',
+    ]);
+    expect(out.map(r => r.score)).toEqual([0.2, 0.1, 0.9, 0.8, 0.7]);
+    expect(out.map(r => r.rerank_score)).toEqual([0.1, 0.3, 0, 0.2, 0.4]);
+  });
+
+  test('preserves reranker order and attribution when nothing matches', () => {
+    const results = [
+      mk('notes/first', 'First Reference', 0.9),
+      mk('notes/second', 'Second Reference', 0.8),
+      mk('notes/third', 'Third Reference', 0.7),
+    ];
+    results[0]!.rerank_score = 0.2;
+    results[1]!.rerank_score = 0.9;
+    results[2]!.rerank_score = 0.5;
+
+    const out = promoteTitleMatches(results, 'indoor greek');
+
+    expect(out.map(r => r.slug)).toEqual([
+      'notes/first',
+      'notes/second',
+      'notes/third',
+    ]);
+    expect(out.map(r => r.score)).toEqual([0.9, 0.8, 0.7]);
+    expect(out.map(r => r.rerank_score)).toEqual([0.2, 0.9, 0.5]);
   });
 });

@@ -99,6 +99,11 @@ export const CANONICAL_PRICING: Record<string, ModelPricing> = {
   // DeepSeek v4 (verified 2026-07-27 at api-docs.deepseek.com): cache-miss rates.
   'deepseek:deepseek-v4-flash':           { input:  0.14, output:  0.28 },
   'deepseek:deepseek-v4-pro':             { input:  0.435, output: 0.87 },
+  // OpenRouter rates are provider-specific exact keys; never infer these from
+  // native vendor prices. Verified against /api/v1/models on 2026-08-04.
+  'openrouter:deepseek/deepseek-chat':     { input: 0.2574, output: 1.0287 },
+  'openrouter:deepseek/deepseek-v4-pro':   { input: 0.435,  output: 0.87 },
+  'openrouter:google/gemini-3-flash-preview': { input: 0.50, output: 3.00 },
 };
 
 /**
@@ -110,11 +115,9 @@ export const CANONICAL_PRICING: Record<string, ModelPricing> = {
  * non-Anthropic bare ids therefore miss, preserving the prior null-return
  * contract for ids like `gpt-5`.
  *
- * Nested OpenRouter ids (`openrouter:anthropic/claude-...`) intentionally MISS:
- * splitProviderModelId yields provider `openrouter`, model
- * `anthropic/claude-...`, and `openrouter:anthropic/claude-...` is not a
- * canonical key. OpenRouter markup ≠ native pricing, so we never reprice it as
- * the inner vendor.
+ * Nested OpenRouter ids MISS unless the exact provider-specific rate is in
+ * CANONICAL_PRICING. OpenRouter markup can differ from native pricing, so this
+ * function never reprices an OpenRouter model from its inner vendor.
  */
 export function canonicalLookup(
   modelId: string | null | undefined,
