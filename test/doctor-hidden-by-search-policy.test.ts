@@ -123,6 +123,23 @@ describe('checkHiddenBySearchPolicy', () => {
     });
   });
 
+  test('approved non-default env exclude → ok', async () => {
+    await withEnv(
+      {
+        GBRAIN_SEARCH_EXCLUDE: 'scratch/',
+        GBRAIN_SEARCH_EXCLUDE_APPROVED: 'scratch/',
+      },
+      async () => {
+        await seed('scratch/notes');
+        await seed('concepts/keeper');
+        const r = await checkHiddenBySearchPolicy(engine);
+        expect(r.status).toBe('ok');
+        expect(r.message).toContain("under 'scratch/'");
+        expect(r.details?.approved_prefixes).toEqual(['scratch/']);
+      },
+    );
+  });
+
   test('multi-chunk page counted once (DISTINCT)', async () => {
     await seed('test/multi', { chunks: 3 });
     const r = await checkHiddenBySearchPolicy(engine);

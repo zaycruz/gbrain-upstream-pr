@@ -122,6 +122,36 @@ describe('parseConversation — REGRESSION PR #1461 (telegram-bracket)', () => {
 // All built-ins must parse their test_positive samples
 // ---------------------------------------------------------------------------
 
+describe('parseConversation — plain role prefixes', () => {
+  test('parses capture-cli user and assistant turns', () => {
+    const body = [
+      'user: Research the repository and report what it is.',
+      'assistant: The repository implements a CRM.',
+      'user: List the API surface.',
+    ].join('\n');
+    const result = parseConversation(body, { fallbackDate: '2026-08-02' });
+    expect(result.phase).toBe('regex_match');
+    expect(result.matched_pattern_id).toBe('plain-role-prefix');
+    expect(result.messages).toHaveLength(3);
+    expect(result.messages.map(message => message.speaker)).toEqual([
+      'user',
+      'assistant',
+      'user',
+    ]);
+  });
+
+  test('rejects sparse role labels in prose after full-body scoring', () => {
+    const body = [
+      'user: Example field description.',
+      'assistant: Example field description.',
+      'system: Example field description.',
+      ...Array.from({ length: 100 }, (_, index) => `Prose line ${index}.`),
+    ].join('\n');
+    const result = parseConversation(body);
+    expect(result.phase).toBe('no_match');
+  });
+});
+
 describe('parseConversation — every built-in matches its test_positive sample', () => {
   for (const entry of BUILTIN_PATTERNS) {
     test(`pattern ${entry.id}: first test_positive parses`, () => {

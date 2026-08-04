@@ -465,48 +465,79 @@ export async function checkPackUpgradeAvailable(
 }
 
 /**
- * type_proliferation (D16): pack-aware ratio. Warns when distinct typed
- * pages exceed pack-declared types + 5; fails at declared × 2. No false
- * positives on custom packs (compares to actual pack declaration count,
- * not a hardcoded threshold).
+ * type_proliferation (D16): pack-aware coverage. Declared aliases are valid
+ * legacy type values. Warn when more than five distinct values are unknown
+ * and fail when unknown values exceed the active pack's canonical type count.
  */
 export async function checkTypeProliferation(
   engine: BrainEngine,
   sourceId?: string,
 ): Promise<OnboardCheckResult> {
-  let declared = 15;  // fallback to gbrain-base-v2 default if pack unavailable
+  let active;
   try {
-    const active = await resolveOnboardActivePack(engine, sourceId);
-    if (active) declared = active.manifest.page_types.length;
+    active = await resolveOnboardActivePack(engine, sourceId);
   } catch {
-    // Use fallback.
+    active = null;
   }
-  const n = await safeCount(
-    engine,
-    `SELECT COUNT(DISTINCT type) AS count FROM pages WHERE deleted_at IS NULL AND type IS NOT NULL${sourceId ? ' AND source_id = $1' : ''}`,
-    sourceId ? [sourceId] : [],
+  if (!active) {
+    return {
+      check: {
+        name: 'type_proliferation',
+        status: 'ok',
+        message: 'Check skipped: active schema pack could not be loaded',
+      },
+      remediations: [],
+    };
+  }
+
+  let rows: Array<{ type: string }>;
+  try {
+    rows = await engine.executeRaw<{ type: string }>(
+      `SELECT DISTINCT type FROM pages WHERE deleted_at IS NULL AND type IS NOT NULL${sourceId ? ' AND source_id = $1' : ''}`,
+      sourceId ? [sourceId] : [],
+    );
+  } catch (error) {
+    return {
+      check: {
+        name: 'type_proliferation',
+        status: 'ok',
+        message: `Check skipped: ${(error as Error).message}`,
+      },
+      remediations: [],
+    };
+  }
+
+  const recognized = new Set(
+    active.manifest.page_types
+      .flatMap(type => [type.name, ...(type.aliases ?? [])])
+      .map(type => type.toLowerCase())
   );
-  const warn = declared + 5;
-  const fail = declared * 2;
-  if (n > fail) {
+  const unknown = rows
+    .map(row => row.type)
+    .filter(type => !recognized.has(type.toLowerCase()));
+  const distinct = rows.length;
+  const declared = active.manifest.page_types.length;
+  if (unknown.length > declared) {
     return {
       check: {
         name: 'type_proliferation',
         status: 'fail',
         message:
-          `${n} distinct page types (pack declares ${declared}). ` +
+          `${unknown.length}/${distinct} distinct page types are not declared by the active pack. ` +
           `Run \`gbrain onboard --check --explain\` to preview a pack upgrade ` +
-          `or define a custom pack with mapping_rules.`,
+          `or define aliases or mapping_rules in a custom pack.`,
       },
-      remediations: [],  // pack_upgrade_available check emits the actionable step
+      remediations: [],
     };
   }
-  if (n > warn) {
+  if (unknown.length > 5) {
     return {
       check: {
         name: 'type_proliferation',
         status: 'warn',
-        message: `${n} distinct page types vs ${declared} declared in pack — consider unification.`,
+        message:
+          `${unknown.length}/${distinct} distinct page types are not declared by the active pack: ` +
+          `${unknown.slice(0, 10).join(', ')}`,
       },
       remediations: [],
     };
@@ -515,7 +546,7 @@ export async function checkTypeProliferation(
     check: {
       name: 'type_proliferation',
       status: 'ok',
-      message: `${n} distinct typed values (pack declares ${declared})`,
+      message: `${distinct} distinct typed values; ${unknown.length} unrecognized by the active pack`,
     },
     remediations: [],
   };

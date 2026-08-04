@@ -622,10 +622,26 @@ Tiers: utility (haiku-class) | reasoning (sonnet) | deep (opus) | subagent (Anth
   // v0.40.6.1: reranker reachability uses the live-search resolution path
   // (file-plane / DB-plane divergence fix); only fires when reranker is
   // actually enabled per the resolved mode bundle.
-  const liveRerankerModel = await resolveLiveRerankerModel(engine);
+  let liveRerankerModel: string | undefined;
+  let rerankerReachability: ProbeResult | null = null;
+  liveRerankerModel = await resolveLiveRerankerModel(engine);
   if (liveRerankerModel && !shouldSkipProvider(liveRerankerModel, skip)) {
     const r = await probeRerankerReachability(engine);
+    rerankerReachability = r;
     if (r) results.push(r);
+  }
+
+  // Persist the last successful live check outside the failure-only audit.
+  // `gbrain doctor` uses this marker to distinguish a resolved historical auth
+  // failure from a currently broken reranker without logging hot-path success.
+  if (rerankerReachability?.status === 'ok' && liveRerankerModel) {
+    try {
+      await engine.setConfig('search.reranker.last_verified_at', new Date().toISOString());
+      await engine.setConfig('search.reranker.last_verified_model', liveRerankerModel);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      process.stderr.write(`[models doctor] could not persist reranker verification: ${message}\n`);
+    }
   }
 
   const report = {

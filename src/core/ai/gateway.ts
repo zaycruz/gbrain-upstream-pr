@@ -3234,6 +3234,30 @@ export function openAIPromptCacheKey(args: {
   return `gbrain:${createHash('sha256').update(basis).digest('hex').slice(0, 32)}`;
 }
 
+function buildDefaultChatModelChain(requestedModel?: string): string[] {
+  const configuredModel = getChatModel();
+  const primaryModel = requestedModel ?? configuredModel;
+  return [
+    primaryModel,
+    ...(requestedModel && requestedModel !== configuredModel ? [configuredModel] : []),
+    ...getChatFallbackChain(),
+  ];
+}
+
+/**
+ * Chat entrypoint with provider failover. An explicit model override is
+ * allowed to fail over to the configured primary before the fallback chain.
+ */
+export async function chat(opts: ChatOpts): Promise<ChatResult> {
+  const modelChain = buildDefaultChatModelChain(opts.model);
+  if (modelChain.length <= 1) return chatAttempt(opts);
+  return chatWithFallback(opts, {
+    modelChain,
+    fallbackOnConfigError: getChatFallbackChain().length > 0,
+    call: chatAttempt,
+  });
+}
+
 export function toAISDKTools(tools: ChatToolDef[] | undefined): Record<string, any> | undefined {
   if (!tools || tools.length === 0) return undefined;
   return tools.reduce((acc, t) => {
@@ -3250,7 +3274,7 @@ export function toAISDKTools(tools: ChatToolDef[] | undefined): Record<string, a
   }, {} as Record<string, any>);
 }
 
-export async function chat(opts: ChatOpts): Promise<ChatResult> {
+async function chatAttempt(opts: ChatOpts): Promise<ChatResult> {
   const tracker = __budgetStore.getStore() ?? null;
   const modelStrEarly = opts.model ?? getChatModel();
 
@@ -3528,6 +3552,122 @@ export async function chat(opts: ChatOpts): Promise<ChatResult> {
     _recordBudget(`${recipe.id}:${modelId}`, fallback.inputTokens, fallback.outputTokens);
     throw normalizeAIError(err, `chat(${recipe.id}:${modelId})`);
   }
+}
+
+export interface ChatFallbackOptions {
+  /**
+   * Ordered provider:model candidates. The first candidate is tried first.
+   * When omitted, the configured chat model is followed by its fallback chain.
+   */
+  modelChain?: readonly string[];
+  /** Also try the next candidate when the current provider has a config error. */
+  fallbackOnConfigError?: boolean;
+  /**
+   * Shared per-run circuit-breaker state. A model is skipped after the
+   * configured transient-failure threshold when another candidate remains.
+   */
+  skipModels?: Set<string>;
+  transientFailures?: Map<string, number>;
+  maxTransientFailures?: number;
+  /** Test or caller seam for one chat attempt. Defaults to gateway chat(). */
+  call?: (opts: ChatOpts) => Promise<ChatResult>;
+}
+interface ChatFallbackFailure {
+  model: string;
+  error: unknown;
+}
+
+function createChatFallbackFailure(
+  failures: readonly ChatFallbackFailure[],
+): AIConfigError | AITransientError {
+  const models = failures.map(failure => failure.model).join(', ');
+  const cause = new AggregateError(
+    failures.map(failure => failure.error),
+    `Chat fallback attempts failed: ${models}`,
+  );
+  const message =
+    `All configured chat models failed (${models}). ` +
+    'Check provider status or configure another fallback model.';
+  if (failures.every(failure => failure.error instanceof AIConfigError)) {
+    return new AIConfigError(
+      message,
+      'Check provider credentials and model access, or configure another fallback model.',
+      cause,
+    );
+  }
+  return new AITransientError(message, cause);
+}
+
+
+/**
+ * Run one chat request across an ordered model chain.
+ *
+ * Transient provider failures (including overload, rate limit, timeout, and
+ * network errors) move to the next candidate. Refusal stop reasons also move
+ * to the next candidate when one exists. The final refusal is returned so the
+ * caller keeps its normal refusal handling. Config errors stay fail-fast unless
+ * the caller opts into them, which prevents malformed prompts from being
+ * hidden in normal chat flows.
+ */
+export async function chatWithFallback(
+  opts: ChatOpts,
+  options: ChatFallbackOptions = {},
+): Promise<ChatResult> {
+  const candidates = (options.modelChain ?? buildDefaultChatModelChain(opts.model))
+    .filter((model): model is string => typeof model === 'string')
+    .map(model => model.trim())
+    .filter(Boolean);
+  const chain = [...new Set(candidates)];
+  const call = options.call ?? chatAttempt;
+  const fallbackOnConfigError = options.fallbackOnConfigError ?? false;
+
+  if (chain.length === 0) {
+    return call(opts);
+  }
+
+  let lastError: unknown;
+  let attempted = false;
+  const failures: ChatFallbackFailure[] = [];
+  const maxTransientFailures = options.maxTransientFailures ?? 2;
+  for (let index = 0; index < chain.length; index++) {
+    const model = chain[index]!;
+    if (options.skipModels?.has(model)) continue;
+    attempted = true;
+    const nextModel = chain.slice(index + 1).find(candidate => !options.skipModels?.has(candidate));
+    try {
+      const result = await call({ ...opts, model });
+      options.transientFailures?.delete(model);
+      if (result.stopReason !== 'refusal' || !nextModel) return result;
+      console.warn(
+        `[ai.gateway] Chat model ${model} returned a refusal; trying configured fallback ${nextModel}.`,
+      );
+    } catch (err) {
+      lastError = err;
+      failures.push({ model, error: err });
+      const canFallback =
+        err instanceof AITransientError ||
+        (fallbackOnConfigError && err instanceof AIConfigError);
+      if (!canFallback || opts.abortSignal?.aborted) throw err;
+      if (!nextModel) continue;
+      if (options.skipModels) {
+        if (err instanceof AIConfigError) {
+          options.skipModels.add(model);
+        } else if (err instanceof AITransientError && options.transientFailures) {
+          const count = (options.transientFailures.get(model) ?? 0) + 1;
+          options.transientFailures.set(model, count);
+          if (count >= maxTransientFailures) options.skipModels.add(model);
+        }
+      }
+      const detail = err instanceof Error ? err.message : String(err);
+      console.warn(`[ai.gateway] Chat model ${model} failed; trying configured fallback ${nextModel}. Reason: ${detail}`);
+    }
+  }
+
+  if (!attempted && options.skipModels) {
+    throw new Error('All chat fallback models are temporarily disabled after repeated failures.');
+  }
+  if (failures.length > 1) throw createChatFallbackFailure(failures);
+  throw lastError ?? new Error('No chat model is available.');
 }
 
 // ---- Tool loop (v0.38 — D11 + D6/D7 gateway-native subagent path) ----

@@ -52,7 +52,11 @@ import { isUndefinedColumnError } from '../core/utils.ts';
 // default search by the hard-exclude prefix policy. Reuses the canonical
 // exclude resolver + LIKE escaper + visibility clause so the doctor count can't
 // drift from what search actually filters.
-import { resolveHardExcludes, DEFAULT_HARD_EXCLUDES } from '../core/search/source-boost.ts';
+import {
+  resolveHardExcludes,
+  parseHardExcludesEnv,
+  DEFAULT_HARD_EXCLUDES,
+} from '../core/search/source-boost.ts';
 import { escapeLikePattern, buildVisibilityClause } from '../core/search/sql-ranking.ts';
 import { unverifiedExtractionFragment } from '../core/extraction-review.ts';
 import { hnswIndexExpected, hnswMaxDimsForType } from '../core/vector-index.ts';
@@ -1147,9 +1151,12 @@ export async function checkContextualRetrievalCoverage(engine: BrainEngine): Pro
  *
  * Status (CV-1a): pages hidden ONLY under DEFAULT excludes → `ok` (intentional
  * noise; warning would make every healthy brain look unhealthy). Pages hidden
- * under a NON-default (env-supplied) prefix → `warn`. The message is
- * agent-prescriptive: move content out of the excluded prefix or pass
- * `include_slug_prefixes` on the query.
+ * under an unapproved NON-default (env-supplied) prefix → `warn`. Operators
+ * may acknowledge an intentional prefix by listing the exact value in
+ * `GBRAIN_SEARCH_EXCLUDE_APPROVED`; the page remains excluded from default
+ * search, but the doctor no longer treats the acknowledged policy as a fault.
+ * The message is agent-prescriptive: move content out of the excluded prefix
+ * or pass `include_slug_prefixes` on the query.
  *
  * NOTE: this does NOT verify `archive/` pages are embedded/graphed — after the
  * #1777 fix `archive/` is no longer excluded, so it never appears here.
@@ -1158,6 +1165,7 @@ export async function checkHiddenBySearchPolicy(engine: BrainEngine): Promise<Ch
   const name = 'hidden_by_search_policy';
   try {
     const prefixes = resolveHardExcludes();
+    const approved = new Set(parseHardExcludesEnv(process.env.GBRAIN_SEARCH_EXCLUDE_APPROVED));
     if (prefixes.length === 0) {
       return { name, status: 'ok', message: 'No search-exclude prefixes active.' };
     }
@@ -1184,7 +1192,12 @@ export async function checkHiddenBySearchPolicy(engine: BrainEngine): Promise<Ch
 
     const defaults = new Set(DEFAULT_HARD_EXCLUDES);
     const perPrefix = prefixes
-      .map((pfx, i) => ({ prefix: pfx, count: Number(row[`c${i}`] ?? 0), isDefault: defaults.has(pfx) }))
+      .map((pfx, i) => ({
+        prefix: pfx,
+        count: Number(row[`c${i}`] ?? 0),
+        isDefault: defaults.has(pfx),
+        isApproved: approved.has(pfx),
+      }))
       .filter((e) => e.count > 0);
 
     if (perPrefix.length === 0) {
@@ -1192,14 +1205,14 @@ export async function checkHiddenBySearchPolicy(engine: BrainEngine): Promise<Ch
         name,
         status: 'ok',
         message: 'No pages hidden by search-exclude policy.',
-        details: { prefixes, counts: {} },
+        details: { prefixes, counts: {}, approved_prefixes: Array.from(approved) },
       };
     }
 
     const counts: Record<string, number> = {};
     for (const e of perPrefix) counts[e.prefix] = e.count;
     const breakdown = perPrefix.map((e) => `${e.count} under '${e.prefix}'`).join(', ');
-    const hasNonDefault = perPrefix.some((e) => !e.isDefault);
+    const hasNonDefault = perPrefix.some((e) => !e.isDefault && !e.isApproved);
     const guidance =
       'If any hold content you want findable, move them out of the excluded ' +
       "prefix or pass `include_slug_prefixes` on the query.";
@@ -1207,7 +1220,7 @@ export async function checkHiddenBySearchPolicy(engine: BrainEngine): Promise<Ch
       name,
       status: hasNonDefault ? 'warn' : 'ok',
       message: `${breakdown} chunked page(s) are excluded from default search by prefix policy. ${guidance}`,
-      details: { prefixes, counts },
+      details: { prefixes, counts, approved_prefixes: Array.from(approved) },
     };
   } catch (e) {
     return {
@@ -1605,6 +1618,35 @@ export async function checkRerankerHealth(engine: BrainEngine): Promise<Check> {
 
     const authFails = failures.filter((f) => f.reason === 'auth');
     if (authFails.length > 0) {
+      // A live `gbrain models doctor` probe records the provider/model and
+      // timestamp after a successful reachability check. Do not keep warning
+      // forever about an auth failure that a newer probe has already cleared.
+      // Fail closed when the marker is absent, malformed, or for another model.
+      const lastVerifiedAt = await engine.getConfig('search.reranker.last_verified_at');
+      const lastVerifiedModel = await engine.getConfig('search.reranker.last_verified_model');
+      const latestAuthFailureAt = authFails.reduce(
+        (latest, failure) => (failure.ts > latest ? failure.ts : latest),
+        '',
+      );
+      const verifiedMs = lastVerifiedAt ? Date.parse(lastVerifiedAt) : NaN;
+      const failureMs = Date.parse(latestAuthFailureAt);
+      const { resolveLiveRerankerModel } = await import('./models.ts');
+      const liveModel = await resolveLiveRerankerModel(engine);
+      const authFailuresResolved =
+        Number.isFinite(verifiedMs) &&
+        Number.isFinite(failureMs) &&
+        verifiedMs > failureMs &&
+        !!lastVerifiedModel &&
+        lastVerifiedModel === liveModel;
+
+      if (authFailuresResolved) {
+        return {
+          name: 'reranker_health',
+          status: 'ok',
+          message: `${authFails.length} historical reranker auth failure(s) resolved by a newer live probe`,
+        };
+      }
+
       return {
         name: 'reranker_health',
         status: 'warn',
@@ -3843,9 +3885,45 @@ export async function computeExtractHealthCheck(
       0,
     );
 
+    // Historical failures from extractors that the active pack no longer runs
+    // are not current health failures. Keep their aggregates for diagnostics,
+    // but exclude them from the halt-rate warning.
+    const phaseByKind: Record<string, 'extract_atoms' | 'synthesize_concepts'> = {
+      atoms: 'extract_atoms',
+      concepts: 'synthesize_concepts',
+    };
+    const enabledPhases: Record<'extract_atoms' | 'synthesize_concepts', boolean> = {
+      extract_atoms: true,
+      synthesize_concepts: true,
+    };
+    try {
+      const { loadActivePack } = await import('../core/schema-pack/load-active.ts');
+      const { loadConfig } = await import('../core/config.ts');
+      const dbConfig = (await engine.getConfig('schema_pack')) ?? undefined;
+      const activePack = await loadActivePack({
+        cfg: loadConfig(),
+        remote: false,
+        dbConfig,
+      });
+      const declaredPhases = new Set(activePack.manifest.phases ?? []);
+      for (const phase of Object.values(phaseByKind)) {
+        enabledPhases[phase] = declaredPhases.has(phase);
+      }
+    } catch {
+      // Fail closed: preserve warnings if active-pack resolution fails.
+    }
+    const disabledKinds = kinds
+      .filter(kind => phaseByKind[kind.kind] && !enabledPhases[phaseByKind[kind.kind]])
+      .map(kind => kind.kind);
+
+    const isActiveKind = (kind: KindAggregate): boolean => {
+      const phase = phaseByKind[kind.kind];
+      return !phase || enabledPhases[phase];
+    };
+
     // High halt rates: per F-OUT-19 doctor surfaces extractor health
     // distinctly from rollup write health.
-    const highHaltKinds = kinds.filter(k => k.halt_rate > 0.10);
+    const highHaltKinds = kinds.filter(k => k.halt_rate > 0.10 && isActiveKind(k));
 
     if (highHaltKinds.length > 0) {
       const top3 = [...highHaltKinds]
@@ -3861,6 +3939,8 @@ export async function computeExtractHealthCheck(
           schema_version: 1,
           kinds,
           rollup_write_failures_7d: totalRollupFailures,
+          disabled_kinds: disabledKinds,
+          pack_phases: enabledPhases,
         },
       };
     }
@@ -3874,6 +3954,8 @@ export async function computeExtractHealthCheck(
           schema_version: 1,
           kinds,
           rollup_write_failures_7d: totalRollupFailures,
+          disabled_kinds: disabledKinds,
+          pack_phases: enabledPhases,
         },
       };
     }
@@ -3881,10 +3963,15 @@ export async function computeExtractHealthCheck(
     return {
       name,
       status: 'ok',
-      message: `${kinds.length} kind(s) tracked, all halt rates below 10%`,
+      message: `${kinds.length} kind(s) tracked, all active halt rates below 10%` +
+        (disabledKinds.length > 0
+          ? `; ignored disabled phase history: ${disabledKinds.join(', ')}`
+          : ''),
       details: {
         schema_version: 1,
         kinds,
+        disabled_kinds: disabledKinds,
+        pack_phases: enabledPhases,
         rollup_write_failures_7d: totalRollupFailures,
       },
     };

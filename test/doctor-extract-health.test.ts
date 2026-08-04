@@ -78,17 +78,17 @@ describe('computeExtractHealthCheck — WARN paths', () => {
     await engine.executeRaw(
       `INSERT INTO extract_rollup_7d (kind, source_id, day, cost_usd, eval_pass_count, eval_fail_count, halt_count, round_completed_count, rollup_write_failures, updated_at)
        VALUES
-         ('atoms', 'default', CURRENT_DATE, 0.10, 0, 0, 3, 7, 0, NOW()),
-         ('facts.conversation', 'default', CURRENT_DATE, 0.40, 0, 0, 5, 5, 0, NOW()),
-         ('concepts', 'default', CURRENT_DATE, 0.05, 0, 0, 2, 8, 0, NOW())`,
+         ('facts.conversation', 'default', CURRENT_DATE, 0.10, 0, 0, 3, 7, 0, NOW()),
+         ('facts.fence', 'default', CURRENT_DATE, 0.40, 0, 0, 5, 5, 0, NOW()),
+         ('takes.proposed', 'default', CURRENT_DATE, 0.05, 0, 0, 2, 8, 0, NOW())`,
       [],
     );
     const check = await computeExtractHealthCheck(engine);
     expect(check.status).toBe('warn');
-    // Top-3 by halt rate: facts.conversation (50%), atoms (30%), concepts (20%)
+    // Top-3 by halt rate: facts.fence (50%), facts.conversation (30%), takes.proposed (20%)
+    expect(check.message).toContain('facts.fence');
     expect(check.message).toContain('facts.conversation');
-    expect(check.message).toContain('atoms');
-    expect(check.message).toContain('concepts');
+    expect(check.message).toContain('takes.proposed');
   });
 
   test('rollup_write_failures > 0 with clean halt rates returns WARN', async () => {
@@ -109,7 +109,7 @@ describe('computeExtractHealthCheck — WARN paths', () => {
     await clearRollup();
     await engine.executeRaw(
       `INSERT INTO extract_rollup_7d (kind, source_id, day, cost_usd, eval_pass_count, eval_fail_count, halt_count, round_completed_count, rollup_write_failures, updated_at)
-       VALUES ('atoms', 'default', CURRENT_DATE, 0.20, 0, 0, 5, 5, 3, NOW())`,
+       VALUES ('facts.conversation', 'default', CURRENT_DATE, 0.20, 0, 0, 5, 5, 3, NOW())`,
       [],
     );
     const check = await computeExtractHealthCheck(engine);
@@ -118,6 +118,20 @@ describe('computeExtractHealthCheck — WARN paths', () => {
     expect(check.message).toContain('halt rate');
     // rollup failures still in details for forensic recovery
     expect((check.details as any)?.rollup_write_failures_7d).toBe(3);
+  });
+
+  test('ignores disabled atom phase history while retaining raw aggregates', async () => {
+    await clearRollup();
+    await engine.executeRaw(
+      `INSERT INTO extract_rollup_7d (kind, source_id, day, cost_usd, eval_pass_count, eval_fail_count, halt_count, round_completed_count, rollup_write_failures, updated_at)
+       VALUES ('atoms', 'default', CURRENT_DATE, 0.20, 0, 0, 5, 1, 0, NOW())`,
+      [],
+    );
+    const check = await computeExtractHealthCheck(engine);
+    expect(check.status).toBe('ok');
+    expect(check.message).toContain('ignored disabled phase history: atoms');
+    expect((check.details as any)?.kinds[0].halt_rate).toBe(5 / 6);
+    expect((check.details as any)?.disabled_kinds).toEqual(['atoms']);
   });
 });
 
