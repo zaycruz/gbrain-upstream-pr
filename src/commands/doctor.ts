@@ -6976,8 +6976,8 @@ export async function buildChecks(
       // source can legitimately emit many WARN events (oversize/markup-heavy)
       // while remaining searchable and intentionally flagged. Fail on hard
       // dispositions (content actually blocked or hidden); warn on soft
-      // dispositions or volume. This keeps doctor from treating expected
-      // code-corpus telemetry as an unhealthy brain.
+      // dispositions. Informational WARN volume stays visible in the message
+      // without reducing health.
       //
       // v0.42 renamed the hard path: a rejected page emits `reject` and a
       // quarantined (hidden) junk page emits `quarantine`; `hard_block` is now
@@ -6990,11 +6990,15 @@ export async function buildChecks(
       const softBlocked = summary.by_type.soft_block + summary.by_type.flag;
       const status: 'ok' | 'warn' | 'fail' =
         hardBlocked > 0 ? 'fail' :
-          (softBlocked > 0 || events.length >= 10) ? 'warn' : 'ok';
+          softBlocked > 0 ? 'warn' : 'ok';
+      const informationalSuffix =
+        hardBlocked === 0 && softBlocked === 0
+          ? ' Informational warnings only; no content was blocked or hidden.'
+          : '';
       checks.push({
         name: 'content_sanity_audit_recent',
         status,
-        message: `${events.length} events (hard=${hardBlocked} [hard_block=${summary.by_type.hard_block} reject=${summary.by_type.reject} quarantine=${summary.by_type.quarantine}] soft=${softBlocked} [soft_block=${summary.by_type.soft_block} flag=${summary.by_type.flag}] warn=${summary.by_type.warn})${topPatterns ? ', patterns: ' + topPatterns : ''}${topSources ? ', sources: ' + topSources : ''}. (Local audit only — multi-host operators set GBRAIN_AUDIT_DIR.)`,
+        message: `${events.length} events (hard=${hardBlocked} [hard_block=${summary.by_type.hard_block} reject=${summary.by_type.reject} quarantine=${summary.by_type.quarantine}] soft=${softBlocked} [soft_block=${summary.by_type.soft_block} flag=${summary.by_type.flag}] warn=${summary.by_type.warn})${topPatterns ? ', patterns: ' + topPatterns : ''}${topSources ? ', sources: ' + topSources : ''}.${informationalSuffix} (Local audit only — multi-host operators set GBRAIN_AUDIT_DIR.)`,
       });
     }
   } catch (err) {
