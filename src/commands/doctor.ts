@@ -3132,7 +3132,7 @@ export async function checkSubagentCapability(engine: BrainEngine): Promise<Chec
             `${source} is "${resolved}" — provider does not support prompt caching. ` +
             `The subagent loop runs hot (cost scales linearly with conversation length). ` +
             `For lower cost on long loops, use an Anthropic model: ` +
-            `\`gbrain config set models.tier.subagent anthropic:claude-sonnet-4-6\`.`,
+            `\`gbrain config set models.subagent anthropic:claude-sonnet-4-6\`.`,
         };
       }
       return null;

@@ -97,6 +97,7 @@ describe('doctor command', () => {
     } as any);
     expect(check.status).toBe('warn');
     expect(check.message).toContain('models.default is "openai:gpt-5.2"');
+    expect(check.message).toContain('gbrain config set models.subagent anthropic:claude-sonnet-4-6');
   });
 
   test('reranker_health warns on repeated unknown rerank failures', async () => {
