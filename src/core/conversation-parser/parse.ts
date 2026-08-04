@@ -483,10 +483,22 @@ export function parseConversation(
   const dateCtx = deriveDateContext(opts);
 
   // Assemble candidate pool: built-ins (minus disabled) + user patterns.
+  // Capture CLI pages are trusted transcripts. Their role anchors can be
+  // sparse when one assistant turn contains long Markdown, so score only
+  // role-shaped anchor candidates while preserving the full-body guard for
+  // every other page.
   const disabledSet = new Set(opts.disabledBuiltinIds ?? []);
   const builtinPool = BUILTIN_PATTERNS.filter((p) => !disabledSet.has(p.id));
   const userPool = opts.userPatterns ?? [];
-  const candidates: readonly PatternEntry[] = [...builtinPool, ...userPool];
+  const baseCandidates: readonly PatternEntry[] = [...builtinPool, ...userPool];
+  const candidates: readonly PatternEntry[] =
+    opts.page?.frontmatter?.captured_via === 'capture-cli'
+      ? baseCandidates.map((entry) =>
+          entry.id === 'plain-role-prefix'
+            ? { ...entry, score_continuations_as_body: true }
+            : entry,
+        )
+      : baseCandidates;
 
   if (candidates.length === 0) {
     return { messages: [], phase: 'no_match' };

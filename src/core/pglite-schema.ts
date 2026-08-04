@@ -493,8 +493,10 @@ CREATE INDEX IF NOT EXISTS idx_minion_jobs_timeout ON minion_jobs (timeout_at)
   WHERE status = 'active' AND timeout_at IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_minion_jobs_parent_status ON minion_jobs (parent_job_id, status)
   WHERE parent_job_id IS NOT NULL;
+-- Terminal duplicates can exist for recurring operations. MinionQueue uses a
+-- same-key transaction lock to preserve durable API-level dedup across them.
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_minion_jobs_idempotency ON minion_jobs (idempotency_key)
-  WHERE idempotency_key IS NOT NULL;
+  WHERE idempotency_key IS NOT NULL AND status NOT IN ('completed','failed','dead','cancelled');
 
 -- Inbox table for sidechannel messaging
 CREATE TABLE IF NOT EXISTS minion_inbox (

@@ -130,17 +130,22 @@ export class MinionQueue {
     const maxSpawnDepth = opts?.max_spawn_depth ?? this.maxSpawnDepth;
 
     return this.engine.transaction(async (tx) => {
-      // 1. Idempotency fast path — if a row already exists for this key, return it
-      //    without doing any other work. The unique partial index guarantees
-      //    no second row can be inserted with the same non-null key.
-      //
-      //    Dead/cancelled jobs represent permanently-failed work whose
-      //    idempotency slot must be freed so a fresh attempt can be inserted.
-      //    We NULL the key (preserving the row for audit) and fall through
-      //    to the INSERT path below.
+      // 1. Idempotency fast path — a completed or failed job still satisfies
+      //    the durable dedup contract. Dead/cancelled work frees its slot so
+      //    the caller can submit a fresh attempt. Prefer any blocking row when
+      //    an older database already contains duplicate terminal keys.
       if (opts?.idempotency_key) {
+        // The partial unique index protects live rows. This transaction lock
+        // closes the SELECT→INSERT race for durable completed/failed dedup.
+        await tx.executeRaw(
+          `SELECT pg_advisory_xact_lock(hashtext('minion_idempotency:' || $1))`,
+          [opts.idempotency_key]
+        );
         const existing = await tx.executeRaw<Record<string, unknown>>(
-          `SELECT * FROM minion_jobs WHERE idempotency_key = $1`,
+          `SELECT * FROM minion_jobs
+           WHERE idempotency_key = $1
+           ORDER BY CASE WHEN status IN ('dead','cancelled') THEN 1 ELSE 0 END, id DESC
+           LIMIT 1`,
           [opts.idempotency_key]
         );
         if (existing.length > 0) {
@@ -285,7 +290,7 @@ export class MinionQueue {
       const insertSql = opts?.idempotency_key
         ? `INSERT INTO minion_jobs (${cols})
            VALUES (${vals})
-           ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+           ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL AND status NOT IN ('completed','failed','dead','cancelled') DO NOTHING
            RETURNING *`
         : `INSERT INTO minion_jobs (${cols})
            VALUES (${vals})
@@ -320,11 +325,12 @@ export class MinionQueue {
 
       const inserted = await tx.executeRaw<Record<string, unknown>>(insertSql, params);
 
-      // ON CONFLICT DO NOTHING returns 0 rows — fall back to SELECT to fetch the
-      // existing row that won the race.
+      // ON CONFLICT DO NOTHING returns 0 rows. Fetch the row that won the
+      // race. It can already be terminal if a very short job completed
+      // between the conflict and this SELECT, so select the newest key match.
       if (inserted.length === 0 && opts?.idempotency_key) {
         const existing = await tx.executeRaw<Record<string, unknown>>(
-          `SELECT * FROM minion_jobs WHERE idempotency_key = $1`,
+          `SELECT * FROM minion_jobs WHERE idempotency_key = $1 ORDER BY id DESC LIMIT 1`,
           [opts.idempotency_key]
         );
         if (existing.length === 0) {

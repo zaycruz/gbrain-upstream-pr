@@ -1671,6 +1671,7 @@ describe('MinionQueue: Idempotency', () => {
     expect(j2.status).toBe('completed');
   });
 
+
   test('active job with idempotency_key still blocks re-submission', async () => {
     const j1 = await queue.add('sync', {}, {
       idempotency_key: 'dream:synth:test:active',

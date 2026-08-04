@@ -682,7 +682,7 @@ export const BUILTIN_PATTERNS: readonly PatternEntry[] = [
     date_source: 'frontmatter',
     time_format: '24h',
     timezone_policy: 'utc_assumed_with_warn',
-    multi_line: false,
+    multi_line: true,
     score_full_body: true,
     quick_reject: /^(?:user|assistant|system|tool|developer):/,
     test_positive: ['user: hello', 'assistant: response here'],

@@ -140,6 +140,25 @@ describe('parseConversation — plain role prefixes', () => {
     ]);
   });
 
+  test('parses sparse multiline turns from trusted capture-cli pages', () => {
+    const body = [
+      '# Captured conversation',
+      'user: Explain the architecture.',
+      'assistant: Start with the entry point.',
+      ...Array.from(
+        { length: 100 },
+        (_, index) => `Detailed continuation line ${index}.`,
+      ),
+    ].join('\n');
+    const result = parseConversation(body, {
+      page: makePage({ captured_via: 'capture-cli' }),
+    });
+    expect(result.phase).toBe('regex_match');
+    expect(result.matched_pattern_id).toBe('plain-role-prefix');
+    expect(result.messages).toHaveLength(2);
+    expect(result.messages[1].text).toContain('Detailed continuation line 99.');
+  });
+
   test('rejects sparse role labels in prose after full-body scoring', () => {
     const body = [
       'user: Example field description.',
