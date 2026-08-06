@@ -3810,7 +3810,9 @@ function collectMarkdownSlugs(root: string): Set<string> {
  * A markdown page with no backing file that sits outside every declared
  * db_only path is invisible to any file-lane backup/recovery reasoning: an
  * operator auditing "what would survive a DB loss" gets a silently wrong
- * answer. The engine's own derive-phase output prefixes
+ * answer. Capture CLI writes are intentionally DB-only; the check reports
+ * their count separately because they depend on database backups by design.
+ * The engine's own derive-phase output prefixes
  * (DERIVE_PHASE_DB_ONLY_DEFAULTS) count as implicitly declared so the check
  * stays quiet on healthy brains. Deliberately allowed to stat the source
  * repo (the one thing the SQL-only check registry could never see).
@@ -3826,6 +3828,7 @@ export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<C
       return { name, status: 'ok', message: 'Not applicable (no sources with a local repo path on this host)' };
     }
     let total = 0;
+    let captureCliDbOnly = 0;
     const samples: string[] = [];
     const perSource: Record<string, number> = {};
     for (const src of checkable) {
@@ -3837,32 +3840,45 @@ export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<C
         // already surfaces the config error itself.
       }
       const dbOnlyDirs = effectiveDbOnlyDirs(declared);
-      const rows = await engine.executeRaw<{ slug: string }>(
-        `SELECT slug FROM pages WHERE deleted_at IS NULL AND source_id = $1 AND page_kind = 'markdown'`,
+      const rows = await engine.executeRaw<{ slug: string; source_kind: string | null }>(
+        `SELECT slug, source_kind FROM pages WHERE deleted_at IS NULL AND source_id = $1 AND page_kind = 'markdown'`,
         [src.id],
       );
       if (rows.length === 0) continue;
       const backed = collectMarkdownSlugs(src.local_path!);
-      for (const { slug } of rows) {
+      for (const { slug, source_kind: sourceKind } of rows) {
         if (dbOnlyDirs.some(dir => slug.startsWith(dir))) continue;
         if (backed.has(slug)) continue;
+        if (sourceKind === 'capture-cli') {
+          captureCliDbOnly++;
+          continue;
+        }
         total++;
         perSource[src.id] = (perSource[src.id] ?? 0) + 1;
         if (samples.length < 5) samples.push(`${slug} (src=${src.id})`);
       }
     }
+    const captureDependency =
+      captureCliDbOnly === 0
+        ? ''
+        : `; ${captureCliDbOnly} capture-cli page(s) are intentionally DB-only and depend on database backups`;
+    const captureExclusion =
+      captureCliDbOnly === 0
+        ? ''
+        : ` ${captureCliDbOnly} unbacked capture-cli page(s) are intentionally DB-only and excluded from this warning.`;
     if (total === 0) {
       return {
         name,
         status: 'ok',
-        message: `Every DB page is file-backed or under a declared/default db_only path (derive-phase defaults: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
+        message: `Every non-capture DB page is file-backed or under a declared/default db_only path${captureDependency} (derive-phase defaults: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
+        details: { capture_cli_db_only: captureCliDbOnly },
       };
     }
     return {
       name,
       status: 'warn',
-      message: `${total} DB page(s) have no backing file and sit outside every declared/default db_only path — invisible to file-lane backup/recovery. Sample: ${samples.join('; ')}. Fix: restore or export the files, or declare their prefixes under storage.db_only in gbrain.yml (derive-phase defaults already cover: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
-      details: { total, per_source: perSource, sample_slugs: samples },
+      message: `${total} DB page(s) have no backing file and sit outside every declared/default db_only path — invisible to file-lane backup/recovery.${captureExclusion} Sample: ${samples.join('; ')}. Fix: restore or export the files, or declare their prefixes under storage.db_only in gbrain.yml (derive-phase defaults already cover: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
+      details: { total, per_source: perSource, sample_slugs: samples, capture_cli_db_only: captureCliDbOnly },
     };
   } catch (e) {
     return { name, status: 'warn', message: `Could not check undeclared db-only pages: ${(e as Error).message}` };

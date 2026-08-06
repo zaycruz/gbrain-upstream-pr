@@ -55,17 +55,24 @@ async function addSource(id: string, localPath: string | null): Promise<void> {
 
 async function addPage(
   slug: string,
-  opts: { sourceId?: string; hash?: string | null; pageKind?: string; deleted?: boolean } = {},
+  opts: {
+    sourceId?: string;
+    hash?: string | null;
+    pageKind?: string;
+    deleted?: boolean;
+    sourceKind?: string | null;
+  } = {},
 ): Promise<void> {
   await engine.executeRaw(
-    `INSERT INTO pages (slug, source_id, type, page_kind, title, compiled_truth, timeline, frontmatter, content_hash, deleted_at)
-     VALUES ($1, $2, 'concept', $3, $1, 'body', '', '{}'::jsonb, $4, $5)`,
+    `INSERT INTO pages (slug, source_id, type, page_kind, title, compiled_truth, timeline, frontmatter, content_hash, deleted_at, source_kind)
+     VALUES ($1, $2, 'concept', $3, $1, 'body', '', '{}'::jsonb, $4, $5, $6)`,
     [
       slug,
       opts.sourceId ?? 'default',
       opts.pageKind ?? 'markdown',
       opts.hash === undefined ? `h-${slug}` : opts.hash,
       opts.deleted ? new Date().toISOString() : null,
+      opts.sourceKind ?? null,
     ],
   );
 }
@@ -179,6 +186,28 @@ describe('undeclared_db_only_pages (#2784)', () => {
     await addPage('notes/db-resident', { sourceId: 'src-a' });
     const c = await checkUndeclaredDbOnlyPages(engine);
     expect(c.status).toBe('ok');
+  });
+
+  test('capture-cli pages are intentional DB-only writes', async () => {
+    const repo = makeRepo();
+    await addSource('src-a', repo);
+    await addPage('inbox/2026-08-06-captured', { sourceId: 'src-a', sourceKind: 'capture-cli' });
+    const c = await checkUndeclaredDbOnlyPages(engine);
+    expect(c.status).toBe('ok');
+    expect(c.message).toContain('1 capture-cli page');
+    expect((c.details as any).capture_cli_db_only).toBe(1);
+  });
+
+  test('non-capture DB writes still warn without counting capture-cli pages', async () => {
+    const repo = makeRepo();
+    await addSource('src-a', repo);
+    await addPage('inbox/2026-08-06-captured', { sourceId: 'src-a', sourceKind: 'capture-cli' });
+    await addPage('people/remote-write', { sourceId: 'src-a', sourceKind: 'mcp:put_page' });
+    const c = await checkUndeclaredDbOnlyPages(engine);
+    expect(c.status).toBe('warn');
+    expect(c.message).toContain('people/remote-write');
+    expect((c.details as any).total).toBe(1);
+    expect((c.details as any).capture_cli_db_only).toBe(1);
   });
 
   test('page with no backing file outside every db_only path → warn with sample + fix', async () => {
