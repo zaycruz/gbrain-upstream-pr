@@ -31,7 +31,7 @@ import { join } from 'node:path';
 
 let engine: PGLiteEngine;
 let previousGbrainHome: string | undefined;
-let isolatedHome: string;
+let isolatedHome: string | undefined;
 
 const DIMS = 1536;
 const FAKE_EMB = Array.from({ length: DIMS }, (_, j) => (j === 0 ? 1 : 0.01));
@@ -72,10 +72,13 @@ beforeAll(async () => {
 afterAll(async () => {
   __setEmbedTransportForTests(null);
   resetGateway();
-  await engine.disconnect();
-  if (previousGbrainHome === undefined) delete process.env.GBRAIN_HOME;
-  else process.env.GBRAIN_HOME = previousGbrainHome;
-  rmSync(isolatedHome, { recursive: true, force: true });
+  try {
+    await engine?.disconnect();
+  } finally {
+    if (previousGbrainHome === undefined) delete process.env.GBRAIN_HOME;
+    else process.env.GBRAIN_HOME = previousGbrainHome;
+    if (isolatedHome) rmSync(isolatedHome, { recursive: true, force: true });
+  }
 });
 
 // A reranker that assigns descending scores from a fixed array (by index).
