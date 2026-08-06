@@ -25,13 +25,21 @@ import {
 } from '../../src/core/ai/gateway.ts';
 import type { PageInput, SearchOpts } from '../../src/core/types.ts';
 import type { RerankInput, RerankResult } from '../../src/core/ai/gateway.ts';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 let engine: PGLiteEngine;
+let previousGbrainHome: string | undefined;
+let isolatedHome: string;
 
 const DIMS = 1536;
 const FAKE_EMB = Array.from({ length: DIMS }, (_, j) => (j === 0 ? 1 : 0.01));
 
 beforeAll(async () => {
+  previousGbrainHome = process.env.GBRAIN_HOME;
+  isolatedHome = mkdtempSync(join(tmpdir(), 'gbrain-autocut-home-'));
+  process.env.GBRAIN_HOME = isolatedHome;
   engine = new PGLiteEngine();
   await engine.connect({});
   await engine.initSchema();
@@ -65,6 +73,9 @@ afterAll(async () => {
   __setEmbedTransportForTests(null);
   resetGateway();
   await engine.disconnect();
+  if (previousGbrainHome === undefined) delete process.env.GBRAIN_HOME;
+  else process.env.GBRAIN_HOME = previousGbrainHome;
+  rmSync(isolatedHome, { recursive: true, force: true });
 });
 
 // A reranker that assigns descending scores from a fixed array (by index).
