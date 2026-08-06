@@ -27,7 +27,7 @@ import { applyAutocut, type AutocutDecision } from './autocut.ts';
 import { buildRelationalArm } from './relational-recall.ts';
 import { loadConfigWithEngine } from '../config.ts';
 import { dedupResults } from './dedup.ts';
-import { applyReranker } from './rerank.ts';
+import { applyReranker, applyTemporalFreshnessGuard } from './rerank.ts';
 import { autoDetectDetail, classifyQuery, isAmbiguousModalityQuery } from './query-intent.ts';
 import { isTitlePhraseMatch } from './title-match.ts';
 import { normalizeAlias } from './alias-normalize.ts';
@@ -1657,9 +1657,16 @@ export async function hybridSearch(
     ? await applyReranker(query, deduped, rerankerOpts as any)
     : deduped;
 
-  // Stable title-match promotion runs after rerank and before the alias hop.
-  // The reranker's relative ordering is preserved within each group.
-  const titlePromoted = promoteTitleMatches(reranked, query);
+  // Cross-encoders score topical relevance, not "latest/current" semantics.
+  // Restore effective-date order only within the high-relevance candidate set.
+  const freshnessGuarded = applyTemporalFreshnessGuard(
+    reranked,
+    recencyMode !== 'off',
+  );
+
+  // Stable title-match promotion runs after rerank and freshness correction.
+  // This preserves the title-match invariant across every query intent.
+  const titlePromoted = promoteTitleMatches(freshnessGuarded, query);
 
   // T3 — free-text alias hop. Runs AFTER rerank so a query that is a page's
   // declared chosen name reliably surfaces that page regardless of how the

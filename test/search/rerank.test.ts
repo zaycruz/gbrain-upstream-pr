@@ -15,7 +15,11 @@ import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { applyReranker, type RerankerOpts } from '../../src/core/search/rerank.ts';
+import {
+  applyReranker,
+  applyTemporalFreshnessGuard,
+  type RerankerOpts,
+} from '../../src/core/search/rerank.ts';
 import { RerankError, type RerankResult } from '../../src/core/ai/gateway.ts';
 import { readRecentRerankFailures } from '../../src/core/rerank-audit.ts';
 import type { SearchResult } from '../../src/core/types.ts';
@@ -110,6 +114,59 @@ describe('applyReranker — happy path', () => {
     };
     const out = await applyReranker('q', results, opts);
     expect((out[0] as any).rerank_score).toBe(0.42);
+  });
+});
+
+describe('applyTemporalFreshnessGuard', () => {
+  function datedResult(slug: string, date: string | null, relevance: number): SearchResult {
+    const result = makeResult(slug, relevance, slug);
+    result.effective_date = date;
+    result.rerank_score = relevance;
+    return result;
+  }
+
+  test('promotes newest high-relevance evidence for current-state queries', () => {
+    const old = datedResult('old', '2026-07-03', 0.99);
+    const recent = datedResult('recent', '2026-08-03', 0.90);
+    const undated = datedResult('undated', null, 0.95);
+    const weakNew = datedResult('weak-new', '2026-08-05', 0.50);
+
+    const out = applyTemporalFreshnessGuard([old, recent, undated, weakNew], true);
+
+    expect(out.map(result => result.slug)).toEqual(['recent', 'old', 'undated', 'weak-new']);
+    expect(recent.freshness_delta).toBe(1);
+    expect(old.freshness_delta).toBe(-1);
+  });
+
+  test('keeps undated and below-floor candidates in their original positions', () => {
+    const canonical = datedResult('canonical', null, 1.0);
+    const old = datedResult('old', '2026-07-03', 0.99);
+    const recent = datedResult('recent', '2026-08-03', 0.90);
+    const weakNew = datedResult('weak-new', '2026-08-05', 0.50);
+
+    const out = applyTemporalFreshnessGuard([canonical, old, recent, weakNew], true);
+
+    expect(out.map(result => result.slug)).toEqual(['canonical', 'recent', 'old', 'weak-new']);
+  });
+
+  test('does not promote a newer result below the relevance floor', () => {
+    const old = datedResult('old', '2026-07-03', 0.99);
+    const weakNew = datedResult('weak-new', '2026-08-05', 0.80);
+
+    expect(applyTemporalFreshnessGuard([old, weakNew], true)).toEqual([old, weakNew]);
+  });
+
+  test('is a no-op when recency is disabled or rerank scores are absent', () => {
+    const dated = datedResult('dated', '2026-08-03', 0.90);
+    const older = datedResult('older', '2026-07-03', 0.99);
+    const disabled = [older, dated];
+    expect(applyTemporalFreshnessGuard(disabled, false)).toBe(disabled);
+
+    const unscored = [
+      makeResult('a', 1.0, 'a'),
+      makeResult('b', 0.9, 'b'),
+    ];
+    expect(applyTemporalFreshnessGuard(unscored, true)).toBe(unscored);
   });
 });
 
