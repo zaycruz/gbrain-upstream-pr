@@ -61,6 +61,8 @@ import {
 import { escapeLikePattern, buildVisibilityClause } from '../core/search/sql-ranking.ts';
 import { unverifiedExtractionFragment } from '../core/extraction-review.ts';
 import { hnswIndexExpected, hnswMaxDimsForType } from '../core/vector-index.ts';
+import { wilsonCI } from '../core/eval-contradictions/calibration.ts';
+import type { Verdict } from '../core/eval-contradictions/types.ts';
 
 export interface Check {
   name: string;
@@ -7258,6 +7260,7 @@ export async function buildChecks(
       const report = latest.report_json as Record<string, unknown> | null;
       const perQuery = (report?.per_query as Array<{
         contradictions: Array<{
+          verdict?: Verdict;
           severity: 'low' | 'medium' | 'high';
           axis: string;
           a: { slug: string };
@@ -7266,28 +7269,46 @@ export async function buildChecks(
         }>;
       }> | undefined) ?? [];
       let high = 0, medium = 0, low = 0;
+      let classified = 0;
+      let queriesWithContradiction = 0;
       const highFindings: Array<{ a: string; b: string; axis: string; cmd: string }> = [];
       for (const q of perQuery) {
+        let queryHasContradiction = false;
         for (const c of q.contradictions) {
+          // Legacy reports predate the verdict field and contained only
+          // contradictions. Preserve their warning behavior.
+          if ((c.verdict ?? 'contradiction') !== 'contradiction') {
+            classified++;
+            continue;
+          }
+          queryHasContradiction = true;
           if (c.severity === 'high') {
             high++;
             highFindings.push({ a: c.a.slug, b: c.b.slug, axis: c.axis, cmd: c.resolution_command });
           } else if (c.severity === 'medium') medium++;
           else low++;
         }
+        if (queryHasContradiction) queriesWithContradiction++;
       }
       const total = high + medium + low;
       if (total === 0) {
+        const classifiedSuffix = classified > 0
+          ? `; excluded ${classified} non-contradiction classification(s)`
+          : '';
         checks.push({
           name: 'contradictions',
           status: 'ok',
-          message: `Latest probe run (${latest.ran_at.slice(0, 10)}) found no suspected contradictions across ${latest.queries_evaluated} queries.`,
+          message: `Latest probe run (${latest.ran_at.slice(0, 10)}) found no genuine contradictions across ${latest.queries_evaluated} queries${classifiedSuffix}.`,
         });
       } else {
-        const ciLow = (latest.wilson_ci_lower * 100).toFixed(0);
-        const ciHigh = (latest.wilson_ci_upper * 100).toFixed(0);
+        const ci = wilsonCI(queriesWithContradiction, latest.queries_evaluated);
+        const ciLow = (ci.lower * 100).toFixed(0);
+        const ciHigh = (ci.upper * 100).toFixed(0);
+        const classifiedSuffix = classified > 0
+          ? `; excluded ${classified} non-contradiction classification(s)`
+          : '';
         const lines = [
-          `${total} suspected contradictions (high=${high} medium=${medium} low=${low}) detected by latest probe — Wilson CI 95%: ${ciLow}-${ciHigh}%.`,
+          `${total} genuine contradiction(s) (high=${high} medium=${medium} low=${low}) detected by latest probe — Wilson CI 95%: ${ciLow}-${ciHigh}%${classifiedSuffix}.`,
         ];
         for (const f of highFindings.slice(0, 3)) {
           lines.push(`  HIGH: ${f.a} vs ${f.b}${f.axis ? ' — ' + f.axis : ''}`);
