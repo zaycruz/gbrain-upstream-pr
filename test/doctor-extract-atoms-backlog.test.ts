@@ -20,7 +20,10 @@ import { join } from 'path';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { resetPgliteState } from './helpers/reset-pglite.ts';
 import { withEnv } from './helpers/with-env.ts';
-import { countExtractAtomsBacklog } from '../src/core/cycle/extract-atoms.ts';
+import {
+  countExtractAtomsBacklog,
+  countExtractAtomsBacklogBySource,
+} from '../src/core/cycle/extract-atoms.ts';
 import { computeExtractAtomsBacklogCheck } from '../src/commands/doctor.ts';
 
 let engine: PGLiteEngine;
@@ -42,8 +45,12 @@ beforeEach(async () => {
 
 const BODY = 'x'.repeat(600); // >= MIN_PAGE_CHARS_FOR_EXTRACTION (500)
 
-async function seedArticle(slug: string) {
-  return engine.putPage(slug, { type: 'article', title: slug, compiled_truth: BODY });
+async function seedArticle(slug: string, sourceId = 'default') {
+  return engine.putPage(
+    slug,
+    { type: 'article', title: slug, compiled_truth: BODY },
+    { sourceId },
+  );
 }
 
 describe('countExtractAtomsBacklog (issue #1678)', () => {
@@ -53,6 +60,19 @@ describe('countExtractAtomsBacklog (issue #1678)', () => {
     await seedArticle('article-c');
     expect(await countExtractAtomsBacklog(engine)).toBe(3);
     expect(await countExtractAtomsBacklog(engine, 'default')).toBe(3);
+  });
+
+  it('returns the brain-wide backlog grouped by source', async () => {
+    await engine.executeRaw(
+      `INSERT INTO sources (id, name) VALUES ('other', 'Other') ON CONFLICT DO NOTHING`,
+    );
+    await seedArticle('default-article');
+    await seedArticle('other-article', 'other');
+    expect(await countExtractAtomsBacklogBySource(engine)).toEqual({
+      default: 1,
+      other: 1,
+    });
+    expect(await countExtractAtomsBacklog(engine)).toBe(2);
   });
 
   it('excludes a page that already has a matching atom (NOT EXISTS)', async () => {
@@ -105,5 +125,18 @@ describe('computeExtractAtomsBacklogCheck (issue #1678)', () => {
     expect(check.message).toContain('--drain');
     expect((check.details as { pack_declares_phase: boolean }).pack_declares_phase).toBe(false);
     expect((check.details as { known_approximation: string }).known_approximation).toContain('page backlog only');
+  });
+
+  it('includes the affected source in the executable drain hint', async () => {
+    await engine.executeRaw(
+      `INSERT INTO sources (id, name) VALUES ('company', 'Company') ON CONFLICT DO NOTHING`,
+    );
+    for (let i = 0; i < 11; i++) await seedArticle(`company-article-${i}`, 'company');
+    const check = await withEnv({ GBRAIN_HOME: EMPTY_HOME }, () =>
+      computeExtractAtomsBacklogCheck(engine));
+    expect(check.status).toBe('warn');
+    expect(check.message).toContain('--source company');
+    expect((check.details as { source_backlogs: Record<string, number> }).source_backlogs)
+      .toEqual({ company: 11 });
   });
 });
