@@ -3712,6 +3712,11 @@ export async function checkUnverifiedExtractions(
   }
 }
 
+function quoteDoctorShellArg(value: string): string {
+  if (/^[A-Za-z0-9_.:/@-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
 /**
  * issue #1678 — extract_atoms_backlog doctor check.
  *
@@ -3733,11 +3738,13 @@ export async function computeExtractAtomsBacklogCheck(
   const name = 'extract_atoms_backlog';
   const approx = 'page backlog only; transcript corpus not counted';
   try {
-    const { countExtractAtomsBacklog } = await import('../core/cycle/extract-atoms.ts');
-    const backlog = await countExtractAtomsBacklog(engine); // brain-wide
-    if (backlog === null) {
+    const { countExtractAtomsBacklogBySource } = await import('../core/cycle/extract-atoms.ts');
+    const sourceBacklogs = await countExtractAtomsBacklogBySource(engine);
+    if (sourceBacklogs === null) {
       return { name, status: 'warn', message: 'backlog query failed (could not count eligible pages)' };
     }
+    const affectedSources = Object.entries(sourceBacklogs).filter(([, count]) => count > 0);
+    const backlog = affectedSources.reduce((total, [, count]) => total + count, 0);
 
     const { packDeclaresPhase } = await import('../core/cycle.ts');
     let declared = false;
@@ -3747,18 +3754,35 @@ export async function computeExtractAtomsBacklogCheck(
       return {
         name, status: 'ok',
         message: 'no pages awaiting atom extraction',
-        details: { backlog, pack_declares_phase: declared, known_approximation: approx },
+        details: {
+          backlog,
+          source_backlogs: sourceBacklogs,
+          pack_declares_phase: declared,
+          known_approximation: approx,
+        },
       };
     }
 
     // The incident: pack does NOT run the phase but a real backlog exists →
-    // it will grow forever without a signal. WARN with the drain command.
+    // it will grow forever without a signal. WARN with source-scoped commands;
+    // an unscoped drain can resolve a different default source and do no work.
     if (!declared && backlog > 10) {
-      const fix = 'gbrain dream --phase extract_atoms --drain --window 120 (or declare extract_atoms in your active schema pack)';
+      const commands = affectedSources.map(([sourceId]) =>
+        `gbrain dream --phase extract_atoms --drain --source ${quoteDoctorShellArg(sourceId)} --window 120`,
+      );
+      const fix = commands.length === 1
+        ? commands[0]
+        : `run once per affected source: ${commands.join(' ; ')}`;
       return {
         name, status: 'warn',
-        message: `${backlog} pages eligible for atom extraction but the active pack does not run extract_atoms — backlog growing. Fix: ${fix}`,
-        details: { backlog, pack_declares_phase: false, fix_hint: fix, known_approximation: approx },
+        message: `${backlog} pages eligible for atom extraction but the active pack does not run extract_atoms — backlog growing. Fix: ${fix} (or declare extract_atoms in your active schema pack)`,
+        details: {
+          backlog,
+          source_backlogs: sourceBacklogs,
+          pack_declares_phase: false,
+          fix_hint: fix,
+          known_approximation: approx,
+        },
       };
     }
 
@@ -3767,7 +3791,12 @@ export async function computeExtractAtomsBacklogCheck(
       return {
         name, status: 'ok',
         message: `${backlog} page(s) pending; active pack runs extract_atoms each cycle`,
-        details: { backlog, pack_declares_phase: true, known_approximation: approx },
+        details: {
+          backlog,
+          source_backlogs: sourceBacklogs,
+          pack_declares_phase: true,
+          known_approximation: approx,
+        },
       };
     }
 
@@ -3775,7 +3804,12 @@ export async function computeExtractAtomsBacklogCheck(
     return {
       name, status: 'ok',
       message: `${backlog} page(s) eligible (below warn threshold; pack does not run extract_atoms)`,
-      details: { backlog, pack_declares_phase: false, known_approximation: approx },
+      details: {
+        backlog,
+        source_backlogs: sourceBacklogs,
+        pack_declares_phase: false,
+        known_approximation: approx,
+      },
     };
   } catch (err) {
     return { name, status: 'warn', message: `extract_atoms_backlog check failed: ${(err as Error).message}` };
