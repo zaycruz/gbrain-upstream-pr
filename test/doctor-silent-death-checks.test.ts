@@ -5,9 +5,9 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from 'bun:test';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { PGLiteEngine } from '../src/core/pglite-engine.ts';
 import { resetPgliteState } from './helpers/reset-pglite.ts';
 import {
@@ -61,11 +61,12 @@ async function addPage(
     pageKind?: string;
     deleted?: boolean;
     sourceKind?: string | null;
+    sourcePath?: string | null;
   } = {},
 ): Promise<void> {
   await engine.executeRaw(
-    `INSERT INTO pages (slug, source_id, type, page_kind, title, compiled_truth, timeline, frontmatter, content_hash, deleted_at, source_kind)
-     VALUES ($1, $2, 'concept', $3, $1, 'body', '', '{}'::jsonb, $4, $5, $6)`,
+    `INSERT INTO pages (slug, source_id, type, page_kind, title, compiled_truth, timeline, frontmatter, content_hash, deleted_at, source_kind, source_path)
+     VALUES ($1, $2, 'concept', $3, $1, 'body', '', '{}'::jsonb, $4, $5, $6, $7)`,
     [
       slug,
       opts.sourceId ?? 'default',
@@ -73,6 +74,7 @@ async function addPage(
       opts.hash === undefined ? `h-${slug}` : opts.hash,
       opts.deleted ? new Date().toISOString() : null,
       opts.sourceKind ?? null,
+      opts.sourcePath ?? null,
     ],
   );
 }
@@ -157,15 +159,45 @@ describe('undeclared_db_only_pages (#2784)', () => {
     expect(c.status).toBe('ok');
   });
 
-  test('page under a hidden directory is not recoverable through the file lane', async () => {
+  test('hidden source file requires explicit re-import', async () => {
     const repo = makeRepo();
     mkdirSync(join(repo, '.archive', 'people'), { recursive: true });
-    writeFileSync(join(repo, '.archive', 'people', 'alice-example.md'), '# Alice');
+    const sourcePath = '.archive/people/alice-example.md';
+    writeFileSync(join(repo, sourcePath), '# Alice');
     await addSource('src-a', repo);
-    await addPage('.archive/people/alice-example', { sourceId: 'src-a' });
+    await addPage('.archive/people/alice-example', { sourceId: 'src-a', sourcePath });
     const c = await checkUndeclaredDbOnlyPages(engine);
     expect(c.status).toBe('warn');
-    expect(c.message).toContain('.archive/people/alice-example');
+    expect(c.message).toContain('existing source file excluded by normal sync');
+    expect((c.details as any).missing_source_files).toBe(0);
+    expect((c.details as any).manual_reimport_files).toBe(1);
+  });
+
+  test('source_path cannot escape the registered source root', async () => {
+    const repo = makeRepo();
+    const outside = makeRepo();
+    const outsideFile = join(outside, 'ghost.md');
+    writeFileSync(outsideFile, '# Ghost');
+    await addSource('src-a', repo);
+    await addPage('people/ghost', { sourceId: 'src-a', sourcePath: relative(repo, outsideFile) });
+    const c = await checkUndeclaredDbOnlyPages(engine);
+    expect(c.status).toBe('warn');
+    expect((c.details as any).missing_source_files).toBe(1);
+    expect((c.details as any).manual_reimport_files).toBe(0);
+  });
+
+  test('source_path symlink cannot escape the registered source root', async () => {
+    const repo = makeRepo();
+    const outside = makeRepo();
+    const outsideFile = join(outside, 'ghost.md');
+    writeFileSync(outsideFile, '# Ghost');
+    symlinkSync(outsideFile, join(repo, 'linked-ghost.md'));
+    await addSource('src-a', repo);
+    await addPage('people/linked-ghost', { sourceId: 'src-a', sourcePath: 'linked-ghost.md' });
+    const c = await checkUndeclaredDbOnlyPages(engine);
+    expect(c.status).toBe('warn');
+    expect((c.details as any).missing_source_files).toBe(1);
+    expect((c.details as any).manual_reimport_files).toBe(0);
   });
 
   test('derive-phase default prefixes are implicitly declared', async () => {
@@ -220,6 +252,8 @@ describe('undeclared_db_only_pages (#2784)', () => {
     expect(c.message).toContain('storage.db_only');
     expect((c.details as any).total).toBe(1);
     expect((c.details as any).per_source['src-a']).toBe(1);
+    expect((c.details as any).missing_source_files).toBe(1);
+    expect((c.details as any).manual_reimport_files).toBe(0);
   });
 
   test('code pages are excluded (different slug scheme)', async () => {

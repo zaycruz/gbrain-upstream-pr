@@ -38,9 +38,9 @@ import { reflexEnabled } from '../core/context/reflex.ts';
 import { resolveSocketPath } from '../core/context/resolve-ipc.ts';
 import { resolveOwnerHolder } from '../core/owner-holder.ts';
 import { homedir } from 'os';
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'path';
+import { dirname, isAbsolute, join, relative, resolve as resolvePath, sep } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'fs';
 import {
   extractEntityRefs,
   isGlobalBasenameEnabled,
@@ -3804,14 +3804,37 @@ function collectMarkdownSlugs(root: string): Set<string> {
   return out;
 }
 
+function hasExistingSourceFile(root: string, sourcePath: string | null): boolean {
+  if (!sourcePath || isAbsolute(sourcePath) || !/\.mdx?$/i.test(sourcePath)) return false;
+  const fullPath = resolvePath(root, sourcePath);
+  const relativePath = relative(root, fullPath);
+  if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) return false;
+  try {
+    const realRoot = realpathSync(root);
+    const realFile = realpathSync(fullPath);
+    const realRelativePath = relative(realRoot, realFile);
+    if (
+      realRelativePath === '..' ||
+      realRelativePath.startsWith(`..${sep}`) ||
+      isAbsolute(realRelativePath)
+    ) {
+      return false;
+    }
+    return statSync(realFile).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
  * issue #2784 (reported by @alexputici) — undeclared_db_only_pages.
  *
- * A markdown page with no backing file that sits outside every declared
- * db_only path is invisible to any file-lane backup/recovery reasoning: an
- * operator auditing "what would survive a DB loss" gets a silently wrong
- * answer. Capture CLI writes are intentionally DB-only; the check reports
- * their count separately because they depend on database backups by design.
+ * A markdown page with no normal-sync backing file that sits outside every
+ * declared db_only path is a recovery risk. The check distinguishes pages
+ * with no source file from pages whose source_path still exists but is
+ * excluded by sync policy; the latter are recoverable only through an
+ * explicit re-import. Capture CLI writes are intentionally DB-only and are
+ * reported separately because they depend on database backups by design.
  * The engine's own derive-phase output prefixes
  * (DERIVE_PHASE_DB_ONLY_DEFAULTS) count as implicitly declared so the check
  * stays quiet on healthy brains. Deliberately allowed to stat the source
@@ -3829,7 +3852,10 @@ export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<C
     }
     let total = 0;
     let captureCliDbOnly = 0;
-    const samples: string[] = [];
+    let missingSourceFiles = 0;
+    let manualReimportFiles = 0;
+    const missingSamples: string[] = [];
+    const manualSamples: string[] = [];
     const perSource: Record<string, number> = {};
     for (const src of checkable) {
       let declared: string[] = [];
@@ -3840,13 +3866,17 @@ export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<C
         // already surfaces the config error itself.
       }
       const dbOnlyDirs = effectiveDbOnlyDirs(declared);
-      const rows = await engine.executeRaw<{ slug: string; source_kind: string | null }>(
-        `SELECT slug, source_kind FROM pages WHERE deleted_at IS NULL AND source_id = $1 AND page_kind = 'markdown'`,
+      const rows = await engine.executeRaw<{
+        slug: string;
+        source_kind: string | null;
+        source_path: string | null;
+      }>(
+        `SELECT slug, source_kind, source_path FROM pages WHERE deleted_at IS NULL AND source_id = $1 AND page_kind = 'markdown'`,
         [src.id],
       );
       if (rows.length === 0) continue;
       const backed = collectMarkdownSlugs(src.local_path!);
-      for (const { slug, source_kind: sourceKind } of rows) {
+      for (const { slug, source_kind: sourceKind, source_path: sourcePath } of rows) {
         if (dbOnlyDirs.some(dir => slug.startsWith(dir))) continue;
         if (backed.has(slug)) continue;
         if (sourceKind === 'capture-cli') {
@@ -3855,7 +3885,13 @@ export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<C
         }
         total++;
         perSource[src.id] = (perSource[src.id] ?? 0) + 1;
-        if (samples.length < 5) samples.push(`${slug} (src=${src.id})`);
+        if (hasExistingSourceFile(src.local_path!, sourcePath)) {
+          manualReimportFiles++;
+          if (manualSamples.length < 5) manualSamples.push(`${slug} (src=${src.id}, path=${sourcePath})`);
+        } else {
+          missingSourceFiles++;
+          if (missingSamples.length < 5) missingSamples.push(`${slug} (src=${src.id})`);
+        }
       }
     }
     const captureDependency =
@@ -3866,19 +3902,36 @@ export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<C
       captureCliDbOnly === 0
         ? ''
         : ` ${captureCliDbOnly} unbacked capture-cli page(s) are intentionally DB-only and excluded from this warning.`;
+    const missingSampleSummary =
+      missingSamples.length === 0 ? '' : ` Missing-source sample: ${missingSamples.join('; ')}.`;
+    const manualSampleSummary =
+      manualSamples.length === 0 ? '' : ` Manual-reimport sample: ${manualSamples.join('; ')}.`;
     if (total === 0) {
       return {
         name,
         status: 'ok',
         message: `Every non-capture DB page is file-backed or under a declared/default db_only path${captureDependency} (derive-phase defaults: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
-        details: { capture_cli_db_only: captureCliDbOnly },
+        details: {
+          total: 0,
+          missing_source_files: 0,
+          manual_reimport_files: 0,
+          capture_cli_db_only: captureCliDbOnly,
+        },
       };
     }
     return {
       name,
       status: 'warn',
-      message: `${total} DB page(s) have no backing file and sit outside every declared/default db_only path — invisible to file-lane backup/recovery.${captureExclusion} Sample: ${samples.join('; ')}. Fix: restore or export the files, or declare their prefixes under storage.db_only in gbrain.yml (derive-phase defaults already cover: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
-      details: { total, per_source: perSource, sample_slugs: samples, capture_cli_db_only: captureCliDbOnly },
+      message: `${total} DB page(s) lack an automatic file-lane recovery path: ${missingSourceFiles} have no backing source file; ${manualReimportFiles} have an existing source file excluded by normal sync and require explicit re-import.${captureExclusion}${missingSampleSummary}${manualSampleSummary} Fix missing sources: restore or export the files, or declare their prefixes under storage.db_only in gbrain.yml. Fix manual re-imports: move or rename the source into a syncable path, or document and test an explicit import procedure (derive-phase defaults already cover: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
+      details: {
+        total,
+        missing_source_files: missingSourceFiles,
+        manual_reimport_files: manualReimportFiles,
+        per_source: perSource,
+        missing_source_samples: missingSamples,
+        manual_reimport_samples: manualSamples,
+        capture_cli_db_only: captureCliDbOnly,
+      },
     };
   } catch (e) {
     return { name, status: 'warn', message: `Could not check undeclared db-only pages: ${(e as Error).message}` };
