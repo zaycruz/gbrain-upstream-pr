@@ -97,6 +97,18 @@ describe('classifyQuery — recency-only patterns (no salience signal)', () => {
     // "updates" + "on/with/from" pattern needed for salience
     expect(r.suggestedSalience).toBe('off');
   });
+
+  test('"how healthy is the knowledge base" → recency=on, salience=off', () => {
+    const r = classifyQuery('how healthy is the company knowledge base');
+    expect(r.suggestedRecency).toBe('on');
+    expect(r.suggestedSalience).toBe('off');
+  });
+
+  test('"what is the current status" overrides canonical recency=off', () => {
+    const r = classifyQuery('what is the current status of search');
+    expect(r.suggestedRecency).toBe('on');
+    expect(r.suggestedSalience).toBe('off');
+  });
 });
 
 describe('classifyQuery — strong recency ("today" / "right now")', () => {

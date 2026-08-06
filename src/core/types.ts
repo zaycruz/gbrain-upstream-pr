@@ -800,6 +800,9 @@ export interface SearchResult {
    *  Undefined when no reranker fired. The raw reranker relevance score
    *  is separately stamped as `rerank_score` for back-compat. */
   reranker_delta?: number;
+  /** Post-rerank freshness delta for current-state queries. Positive means
+   *  effective-date ordering moved the result closer to the top. */
+  freshness_delta?: number;
   /** Raw cross-encoder relevance score stamped by applyReranker on the
    *  reranked head (undefined when no reranker fired). Distinct from `score`
    *  (RRF + boosts). v0.42.3.0 autocut cuts on this — the trustworthy

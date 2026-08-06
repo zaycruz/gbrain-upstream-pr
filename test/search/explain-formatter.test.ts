@@ -125,6 +125,14 @@ describe('formatResultExplain — every boost type', () => {
     expect(out).toContain('↓ reranker rank -1');
   });
 
+  test('freshness_delta renders as a separate rank correction', () => {
+    const out = formatResultExplain(
+      r('a/b', 1.0, { base_score: 1.0, freshness_delta: 3 }),
+      1,
+    );
+    expect(out).toContain('↑ freshness rank +3');
+  });
+
   test('reranker_delta = 0 → no rendering (no movement)', () => {
     const out = formatResultExplain(
       r('a/b', 1.0, { base_score: 1.0, reranker_delta: 0 }),
