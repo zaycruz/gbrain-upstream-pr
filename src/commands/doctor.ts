@@ -60,7 +60,7 @@ import {
   DERIVE_PHASE_DB_ONLY_DEFAULTS,
   findDbOnlyCollisions,
 } from '../core/storage-config.ts';
-import { slugifyPath } from '../core/sync.ts';
+import { isSyncable, pruneDir, slugifyPath } from '../core/sync.ts';
 // issue #1777: hidden_by_search_policy — count chunked pages withheld from
 // default search by the hard-exclude prefix policy. Reuses the canonical
 // exclude resolver + LIKE escaper + visibility clause so the doctor count can't
@@ -3785,19 +3785,20 @@ function collectMarkdownSlugs(root: string): Set<string> {
   const stack = [''];
   while (stack.length > 0) {
     const rel = stack.pop()!;
+    const dir = rel ? join(root, rel) : root;
     let entries;
     try {
-      entries = readdirSync(rel ? join(root, rel) : root, { withFileTypes: true });
+      entries = readdirSync(dir, { withFileTypes: true });
     } catch {
       continue;
     }
     for (const e of entries) {
-      // Hidden directories can contain canonical, tracked knowledge (for
-      // example `.archive/`). Only implementation metadata is never a page.
-      if (e.name === '.git' || e.name === 'node_modules') continue;
       const childRel = rel ? `${rel}/${e.name}` : e.name;
-      if (e.isDirectory()) stack.push(childRel);
-      else if (/\.mdx?$/i.test(e.name)) out.add(slugifyPath(childRel).toLowerCase());
+      if (e.isDirectory()) {
+        if (pruneDir(e.name, dir)) stack.push(childRel);
+      } else if (isSyncable(childRel)) {
+        out.add(slugifyPath(childRel).toLowerCase());
+      }
     }
   }
   return out;
