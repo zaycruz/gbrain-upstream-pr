@@ -59,6 +59,7 @@ describe('doctor contradiction verdict handling', () => {
     await writeRun([
       finding({ verdict: 'temporal_regression', severity: 'high' }),
       finding({ verdict: 'negation_artifact', severity: 'low' }),
+      finding({ verdict: 'no_contradiction', severity: 'low' }),
       finding({ verdict: 'contradiction', severity: 'medium' }),
     ]);
 
@@ -66,7 +67,7 @@ describe('doctor contradiction verdict handling', () => {
 
     expect(check?.status).toBe('ok');
     expect(check?.message).toContain('1 genuine contradiction(s) (high=0 medium=1 low=0)');
-    expect(check?.message).toContain('excluded 2 temporal or negation classification(s)');
+    expect(check?.message).toContain('excluded 3 non-contradiction classification(s)');
     expect(check?.message).not.toContain('HIGH: health/older vs health/newer');
   });
 

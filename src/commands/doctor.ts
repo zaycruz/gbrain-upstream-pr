@@ -7293,7 +7293,7 @@ export async function buildChecks(
       const total = high + medium + low;
       if (total === 0) {
         const classifiedSuffix = classified > 0
-          ? `; excluded ${classified} temporal or negation classification(s)`
+          ? `; excluded ${classified} non-contradiction classification(s)`
           : '';
         checks.push({
           name: 'contradictions',
@@ -7305,7 +7305,7 @@ export async function buildChecks(
         const ciLow = (ci.lower * 100).toFixed(0);
         const ciHigh = (ci.upper * 100).toFixed(0);
         const classifiedSuffix = classified > 0
-          ? `; excluded ${classified} temporal or negation classification(s)`
+          ? `; excluded ${classified} non-contradiction classification(s)`
           : '';
         const lines = [
           `${total} genuine contradiction(s) (high=${high} medium=${medium} low=${low}) detected by latest probe — Wilson CI 95%: ${ciLow}-${ciHigh}%${classifiedSuffix}.`,
