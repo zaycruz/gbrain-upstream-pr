@@ -41,7 +41,6 @@ describe('raava-base bundled schema pack', () => {
     const base = loadPackFromFile(BASE_PATH);
     const raava = loadPackFromFile(RAAVA_PATH);
 
-    expect(raava.link_types).toEqual(base.link_types);
     expect(raava.frontmatter_links).toEqual(base.frontmatter_links);
     expect(raava.enrichable_types).toEqual(base.enrichable_types);
     expect(raava.filing_rules).toEqual(base.filing_rules);
@@ -59,5 +58,26 @@ describe('raava-base bundled schema pack', () => {
     expect(byName.get('journal')?.aliases).toEqual(['daily-journal', 'daily-note']);
     expect(byName.get('adr')?.aliases).toEqual(['ADR']);
     expect(byName.get('knowledge-base')?.aliases).toEqual(['knowledge']);
+  });
+
+  test('declares the ontology v1 edge vocabulary as a superset of base link types', () => {
+    const base = loadPackFromFile(BASE_PATH);
+    const raava = loadPackFromFile(RAAVA_PATH);
+    const raavaLinks = new Set(raava.link_types.map((lt) => lt.name));
+
+    // Every gbrain-base link type is preserved.
+    for (const lt of base.link_types) {
+      expect(raavaLinks.has(lt.name)).toBe(true);
+    }
+
+    // Ontology v1 structural + semantic edges (ontology doc:
+    // raava-brain concepts/engineering/raava-brain-ontology-v1.md).
+    const ONTOLOGY_EDGES = [
+      'filed_under', 'authored_by', 'references', 'supersedes',
+      'governs', 'implements', 'escalates', 'decided_in', 'depends_on',
+    ];
+    for (const name of ONTOLOGY_EDGES) {
+      expect(raavaLinks.has(name)).toBe(true);
+    }
   });
 });

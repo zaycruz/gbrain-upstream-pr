@@ -400,6 +400,45 @@ link_types:
     inference:
       page_type: image
 
+  # ── Raava ontology v1: structural + semantic edge vocabulary ──
+  # See raava-brain concepts/engineering/raava-brain-ontology-v1.md.
+  # Tier 1 (structural) edges are emitted from frontmatter/paths by the
+  # extract phase, not by regex inference; they are declared here so the
+  # vocabulary is governed and graph-query recognizes the verbs.
+
+  - name: filed_under
+    inverse: contains
+
+  - name: authored_by
+    inference:
+      regex: \b(written by|authored by|posted by)\b
+
+  - name: references
+    inverse: referenced_by
+
+  - name: supersedes
+    inference:
+      regex: \b(supersedes?|replaces?|obsoletes?|deprecates?)\b
+
+  - name: governs
+    inverse: governed_by
+
+  - name: implements
+    inference:
+      regex: \b(implements?|executes?|carries out|operationalizes?)\b
+
+  - name: escalates
+    inverse: escalated_in
+    inference:
+      regex: \b(escalation|escalates?|escalated)\b
+
+  - name: decided_in
+    inverse: decided
+
+  - name: depends_on
+    inference:
+      regex: \b(depends? on|requires?|blocked by|prerequisite)\b
+
   - name: founded
     inference:
       regex: \b(founded|founder of|co-?founded|started)\b
