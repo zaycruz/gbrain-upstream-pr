@@ -41,6 +41,7 @@ import {
   buildBasenameIndex, queryBasenameIndex, stripCodeBlocks,
   type UnresolvedFrontmatterRef, type LinkCandidate,
 } from '../core/link-extraction.ts';
+import { extractStructuralEdges } from '../core/ontology-edges.ts';
 import { createProgress } from '../core/progress.ts';
 import { getCliOptions, cliOptsToProgressOptions } from '../core/cli-options.ts';
 import { pathToSlug, slugifyPath, pruneDir, isSyncable } from '../core/sync.ts';
@@ -481,6 +482,21 @@ export async function extractLinksFromFile(
         context: c.context,
       });
     }
+  }
+
+  // raava/prod WS2: ontology v1 structural edges (filed_under, authored_by,
+  // references from related:/see-also:). These are confidence-1.0 edges
+  // derived from repo structure and curated frontmatter; they coexist with
+  // the body-link edges above and are distinguishable via link_source.
+  // `.archive/` targets and run-log pages are excluded inside the extractor.
+  for (const edge of extractStructuralEdges({ slug, frontmatter: fm, allSlugs })) {
+    links.push({
+      from_slug: edge.from_slug,
+      to_slug: edge.to_slug,
+      link_type: edge.link_type,
+      context: edge.context,
+      link_source: edge.link_source,
+    });
   }
 
   return links;
