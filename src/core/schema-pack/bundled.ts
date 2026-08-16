@@ -6,6 +6,7 @@
 // v0.39 T8 — gbrain-base + gbrain-recommended.
 // v0.41 T4 — lens packs: creator, investor, engineer, everything (meta-pack).
 // v0.42 type-unification — gbrain-base-v2, the 15-type canonical successor.
+// raava/prod — raava-base, Raava's self-contained gbrain-base superset.
 
 export const BUNDLED_PACK_NAMES = [
   'gbrain-base',
@@ -15,6 +16,7 @@ export const BUNDLED_PACK_NAMES = [
   'gbrain-engineer',
   'gbrain-everything',
   'gbrain-base-v2',
+  'raava-base',
 ] as const;
 
 export type BundledPackName = typeof BUNDLED_PACK_NAMES[number];

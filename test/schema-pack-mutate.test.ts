@@ -106,7 +106,9 @@ describe('locateMutablePackFile — bundled guard', () => {
     // Derived from the single bundled registry — the lens packs (creator,
     // investor, engineer, everything) are read-only too.
     expect(BUNDLED_PACK_NAMES.has('gbrain-investor')).toBe(true);
-    expect(BUNDLED_PACK_NAMES.size).toBe(7);
+    // raava/prod: raava-base joins the bundled set.
+    expect(BUNDLED_PACK_NAMES.has('raava-base')).toBe(true);
+    expect(BUNDLED_PACK_NAMES.size).toBe(8);
   });
 
   it('rejects gbrain-base-v2 with PACK_READONLY (bundled guard)', () => {
