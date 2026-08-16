@@ -184,6 +184,7 @@ export const META_CHECK_NAMES: ReadonlySet<string> = new Set([
   'eval_capture',
   'minions_migration',
   'multi_source_drift',
+  'ontology_link_type_drift',
   'pack_upgrade_available',
   'schema_pack_active',
   'schema_pack_consistency',

@@ -928,6 +928,8 @@ export async function doctorReportRemote(engine: BrainEngine): Promise<DoctorRep
   checks.push(await checkSchemaPackActive(engine));
   checks.push(await checkSchemaPackConsistency(engine));
   checks.push(await checkSchemaPackSourceDrift(engine));
+  // raava/prod ontology v1 — edge-vocabulary drift vs the active pack.
+  checks.push(await checkOntologyLinkTypeDrift(engine));
 
   // 7. v0.32.3 search-lite mode + per-key drift surface.
   checks.push(await checkSearchMode(engine));
@@ -8992,6 +8994,55 @@ async function checkSchemaPackSourceDrift(engine: BrainEngine): Promise<Check> {
       status: 'ok',
       message: `Skipped: ${(e as Error).message}`,
     };
+  }
+}
+
+/**
+ * raava/prod ontology v1 — ontology_link_type_drift.
+ *
+ * The ontology plan's drift mitigation: observed `links.link_type` values
+ * outside the ACTIVE pack's declared `link_types[]` mean the edge graph is
+ * drifting from the ontology — new edge types written by ingest or manual
+ * `gbrain link` that the pack never declared. `mentions` and
+ * `wikilink_basename` are exempt (back-compat ingest artifacts,
+ * deliberately excluded from relational walks rather than deleted).
+ * Warn-only, sibling to schema_pack_consistency / type_proliferation.
+ */
+export async function checkOntologyLinkTypeDrift(engine: BrainEngine): Promise<Check> {
+  const name = 'ontology_link_type_drift';
+  try {
+    const { loadActivePackBestEffort } = await import('../core/schema-pack/best-effort.ts');
+    const pack = await loadActivePackBestEffort({ remote: false } as import('../core/operations.ts').OperationContext);
+    if (!pack) {
+      return { name, status: 'ok', message: 'Skipped: no active schema pack resolved (empty-filter contract).' };
+    }
+    const declared = new Set((pack.manifest.link_types ?? []).map((lt) => lt.name));
+    // Base ingest artifacts predate packs; they are excluded from relational
+    // walks (NON_RELATIONAL_LINK_TYPES) but still legal rows.
+    for (const base of ['mentions', 'wikilink_basename']) declared.add(base);
+    if (declared.size === 2) {
+      return { name, status: 'ok', message: 'Active pack declares no link_types — drift check N/A.' };
+    }
+    const rows = await engine.executeRaw<{ link_type: string; n: string | number }>(
+      `SELECT link_type, COUNT(*)::text AS n FROM links GROUP BY link_type ORDER BY n DESC`,
+    );
+    const undeclared = rows.filter((r) => !declared.has(r.link_type));
+    if (undeclared.length === 0) {
+      return {
+        name,
+        status: 'ok',
+        message: `Every observed links.link_type is declared by the active pack (${pack.manifest.name} v${pack.manifest.version}) or a base ingest artifact.`,
+      };
+    }
+    const sample = undeclared.slice(0, 5).map((r) => `${r.link_type} (${r.n})`).join('; ');
+    return {
+      name,
+      status: 'warn',
+      message: `${undeclared.length} observed links.link_type value(s) are NOT declared by the active pack (${pack.manifest.name}): ${sample}. The edge graph is drifting from the ontology. Fix: declare the type in the pack's link_types[] (with inverse/regex) or relink/delete the offending edges.`,
+      details: { undeclared: undeclared.map((r) => ({ link_type: r.link_type, count: Number(r.n) })) },
+    };
+  } catch (e) {
+    return { name, status: 'warn', message: `Could not check ontology link-type drift: ${(e as Error).message}` };
   }
 }
 
