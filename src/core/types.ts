@@ -845,6 +845,14 @@ export interface SearchResult {
    * incident's duplicate-stub class.
    */
   create_safety?: import('./search/evidence.ts').CreateSafety;
+  /**
+   * raava/prod ontology v1 (WS3c) — set when this result was surfaced by
+   * the navigational recall arm: 'enumerate' (type listing, e.g. "all
+   * decisions") or 'canonical' (brain-protocol doc, e.g. "how do agents
+   * write facts"). Drives `gbrain search --explain` attribution. Absent
+   * for organic keyword/vector/relational results.
+   */
+  nav_kind?: 'enumerate' | 'canonical';
 }
 
 /**
@@ -1171,6 +1179,14 @@ export interface SearchOpts {
    * everywhere by default = off).
    */
   minScore?: number;
+  /**
+   * raava/prod ontology v1 (WS3c) — navigational routing per-call override.
+   * When on, navigational queries route to type enumeration / canonical
+   * brain-protocol docs via the nav recall arm. Per-call wins over the
+   * `search.nav_routing` config key wins over the mode bundle (false
+   * everywhere by default = off).
+   */
+  navRouting?: boolean;
 }
 
 /**

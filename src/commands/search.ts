@@ -76,6 +76,7 @@ const KNOB_DESCRIPTIONS: Record<keyof ModeBundle, string> = {
   relational_retrieval_depth: 'Max hops for relational traversal (1..3, 2 default)',
   // raava/prod ontology v1
   min_score: 'Absolute relevance floor on rerank_score (0..1, undefined = off; below-floor results dropped)',
+  nav_routing: 'Navigational routing arm (enumerate types / canonical brain docs instead of word overlap)',
 };
 
 interface SearchModesReport {

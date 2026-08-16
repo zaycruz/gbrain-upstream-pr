@@ -25,6 +25,7 @@ import {
 } from './return-policy.ts';
 import { applyAutocut, type AutocutDecision } from './autocut.ts';
 import { buildRelationalArm } from './relational-recall.ts';
+import { buildNavArm } from './nav-recall.ts';
 import { loadConfigWithEngine } from '../config.ts';
 import { dedupResults } from './dedup.ts';
 import { applyReranker } from './rerank.ts';
@@ -799,6 +800,8 @@ export interface HybridSearchOpts extends SearchOpts {
   /** v0.43 — observability sink for the relational recall arm (fired/no-op,
    *  kind, seeds resolved, candidates, errored). Best-effort. */
   onRelationalMeta?: (meta: import('./relational-recall.ts').RelationalArmMeta) => void;
+  /** raava/prod (WS3c) — observability sink for the navigational recall arm. */
+  onNavMeta?: (meta: import('./nav-recall.ts').NavArmMeta) => void;
   /**
    * T4/D5 — per-call search-mode selector (one of SEARCH_MODES). Selects the
    * whole mode bundle for this call, overriding the server-configured mode.
@@ -995,6 +998,8 @@ export async function hybridSearch(
       // raava/prod — relevance floor per-call thread-through (same
       // contamination class as autocut: floored sets differ).
       min_score: opts?.minScore,
+      // raava/prod — navigational routing per-call thread-through.
+      nav_routing: opts?.navRouting,
       // v0.43 — relational recall per-call thread-through. Per-call wins over
       // config override wins over mode bundle; without this the A/B eval gate
       // would be a no-op (both branches resolve to the same mode default).
@@ -1221,6 +1226,42 @@ export async function hybridSearch(
     });
   }
 
+  // raava/prod ontology v1 (WS3c) — build the navigational recall arm ONCE
+  // here so enumeration/canonical answers contribute on ALL THREE paths
+  // (same placement contract as the relational arm). Pack-driven: the
+  // enumerate shape only routes when the head noun resolves to a type the
+  // ACTIVE schema pack declares. Pack load is best-effort — a brain
+  // without a resolvable pack gets an empty type set (enumerate never
+  // fires) rather than an error. Empty for non-nav queries → pure no-op.
+  let navList: SearchResult[] = [];
+  if (resolvedMode.nav_routing) {
+    let packTypes: ReadonlySet<string> = new Set();
+    try {
+      const { loadActivePackBestEffort } = await import('../schema-pack/best-effort.ts');
+      const pack = await loadActivePackBestEffort({
+        remote: true, // search is an agent-facing surface; per-call pack opt is not honored here
+        sourceId: opts?.sourceId,
+      } as import('../operations.ts').OperationContext);
+      const declared = pack?.manifest.page_types ?? [];
+      // page_types entries are objects ({name, primitive, ...}); the
+      // enumerate router keys on the declared type NAME.
+      packTypes = new Set(
+        declared.map((t: { name: string } | string) =>
+          (typeof t === 'string' ? t : t.name).toLowerCase(),
+        ),
+      );
+    } catch {
+      // pack resolution failure must never break search — no types, no enumerate.
+    }
+    navList = await buildNavArm(engine, query, {
+      sourceId: opts?.sourceId,
+      sourceIds: opts?.sourceIds,
+      packTypes,
+      limit: opts?.limit ?? resolvedMode.searchLimit,
+      onMeta: opts?.onNavMeta,
+    });
+  }
+
   // Skip vector search entirely if the gateway has no embedding provider configured (Codex C3).
   // v0.36 (D10): ask "is the RESOLVED column's provider reachable?" rather
   // than "is the global default reachable?" — otherwise an unreachable
@@ -1258,13 +1299,14 @@ export async function hybridSearch(
     // chunk-grain keyword FTS alone fails (D1).
     // issue #160: stamp unverified stubs BEFORE fusion so the compiled-truth
     // boost skips them (flag survives fusion's result spread).
-    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList]);
+    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList, ...navList]);
     let noEmbedResults = keywordResults;
-    if (relationalList.length > 0 || titleResults.length > 0) {
+    if (relationalList.length > 0 || titleResults.length > 0 || navList.length > 0) {
       const fk = opts?.rrfK ?? RRF_K;
       const noEmbedLists = [{ list: keywordResults, k: fk }];
       if (titleResults.length > 0) noEmbedLists.push({ list: titleResults, k: fk });
       if (relationalList.length > 0) noEmbedLists.push({ list: relationalList, k: fk });
+      if (navList.length > 0) noEmbedLists.push({ list: navList, k: fk });
       noEmbedResults = rrfFusionWeighted(noEmbedLists, shouldBoostCompiledTruth(detailResolved));
     }
     if (noEmbedResults.length > 0) {
@@ -1502,13 +1544,14 @@ export async function hybridSearch(
     // here too (same rationale as the no-embedding-provider path — D1).
     // issue #160: stamp unverified stubs BEFORE fusion (see the
     // no-embedding-provider path for rationale).
-    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList]);
+    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList, ...navList]);
     let fallbackResults = keywordResults;
-    if (relationalList.length > 0 || titleResults.length > 0) {
+    if (relationalList.length > 0 || titleResults.length > 0 || navList.length > 0) {
       const fk = opts?.rrfK ?? RRF_K;
       const fallbackLists = [{ list: keywordResults, k: fk }];
       if (titleResults.length > 0) fallbackLists.push({ list: titleResults, k: fk });
       if (relationalList.length > 0) fallbackLists.push({ list: relationalList, k: fk });
+      if (navList.length > 0) fallbackLists.push({ list: navList, k: fk });
       fallbackResults = rrfFusionWeighted(fallbackLists, shouldBoostCompiledTruth(detail));
     }
     if (fallbackResults.length > 0) {
@@ -1590,6 +1633,14 @@ export async function hybridSearch(
   // re-score, post-fusion boosts, dedup, reranker, autocut, token budget).
   if (relationalList.length > 0 && effectiveModality !== 'image') {
     allLists.push({ list: relationalList, k: baseRrfK });
+  }
+
+  // raava/prod ontology v1 (WS3c) — navigational recall arm (fifth RRF
+  // arm), built above so it also contributes on the keyword-only paths.
+  // Neutral weight (baseRrfK), same contract as relational. Empty for
+  // non-nav queries → pure no-op.
+  if (navList.length > 0 && effectiveModality !== 'image') {
+    allLists.push({ list: navList, k: baseRrfK });
   }
 
   // issue #160: stamp unverified auto-extracted stubs across ALL candidate
@@ -1885,6 +1936,9 @@ export async function hybridSearchCached(
       // knobsHash `ms=` bit reflects the per-call override (a floored write
       // must not be served to an unfloored lookup, or vice versa).
       min_score: opts?.minScore,
+      // raava/prod — nav_routing threaded through the cache resolver so the
+      // knobsHash `nav=` bit reflects the per-call override.
+      nav_routing: opts?.navRouting,
       // v0.43 — relational recall per-call thread-through. Per-call wins over
       // config override wins over mode bundle; without this the A/B eval gate
       // would be a no-op (both branches resolve to the same mode default).

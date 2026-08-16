@@ -289,6 +289,18 @@ export interface ModeBundle {
    * SearchOpts.minScore → `search.min_score` config → mode bundle.
    */
   min_score: number | undefined;
+  /**
+   * raava/prod ontology v1 (WS3c) — navigational recall arm. When on, a
+   * navigational query ("all decisions", "how do agents write facts to the
+   * brain") routes to a type enumeration (listPages over the active pack's
+   * declared page_types) or the canonical brain-protocol doc set, injected
+   * as a fifth RRF arm — instead of matching body-text word overlap.
+   * Deterministic, zero-LLM, pure no-op for non-nav queries. Default OFF
+   * for all bundles (upstream parity); raava production enables it via
+   * `search.nav_routing`. Override path: per-call SearchOpts.navRouting ->
+   * `search.nav_routing` config -> mode bundle.
+   */
+  nav_routing: boolean;
 }
 
 /**
@@ -344,6 +356,7 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> = 
     autocut_jump: 0.2,
     // raava/prod — relevance floor OFF by default (upstream parity).
     min_score: undefined,
+    nav_routing: false,
   }),
   balanced: Object.freeze({
     cache_enabled: true,
@@ -403,6 +416,7 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> = 
     relational_retrieval_depth: 2,
     autocut_jump: 0.2,
     min_score: undefined,
+    nav_routing: false,
   }),
   tokenmax: Object.freeze({
     cache_enabled: true,
@@ -455,6 +469,7 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> = 
     relational_retrieval_depth: 2,
     autocut_jump: 0.2,
     min_score: undefined,
+    nav_routing: false,
   }),
 });
 
@@ -511,6 +526,8 @@ export interface SearchKeyOverrides {
   autocut_jump?: number;
   // raava/prod — relevance floor override (see ModeBundle.min_score).
   min_score?: number;
+  // raava/prod — navigational routing override.
+  nav_routing?: boolean;
 }
 
 /**
@@ -562,6 +579,8 @@ export interface SearchPerCallOpts {
   relational_retrieval_depth?: number;
   // raava/prod — relevance floor per-call override.
   min_score?: number;
+  // raava/prod — navigational routing per-call override.
+  nav_routing?: boolean;
 }
 
 /**
@@ -659,6 +678,7 @@ export function resolveSearchMode(input: ResolveSearchModeInput): ResolvedSearch
     relational_retrieval_depth: pick('relational_retrieval_depth'),
     // raava/prod — relevance floor resolved via the same pick chain.
     min_score: pick('min_score'),
+    nav_routing: pick('nav_routing'),
     resolved_mode,
     mode_valid: valid,
   };
@@ -804,10 +824,12 @@ export function attributeKnob<K extends keyof ModeBundle>(
 // to cache.ttl_seconds, with no warning and no way for an operator to tell.
 // Same one-time global cold-miss pattern as the bumps above; refills within
 // cache.ttl_seconds (3600s default).
-// raava/prod bump 15→16: min_score participates so a floored (possibly
-// empty) result set is never served to an unfloored lookup, and vice versa.
-// ONE-TIME cold-miss on upgrade as v=15 rows become unreachable.
-export const KNOBS_HASH_VERSION = 16;
+// raava/prod bump 15→17: min_score (16) + nav_routing (17) participate so a
+// floored/nav-routed result set is never served to an unfloored/unrouted
+// lookup, and vice versa. ONE-TIME cold-miss on upgrade as v=15 rows
+// become unreachable. (16 was a fork-internal stepping stone; nothing
+// persisted at 16 in any deployed environment.)
+export const KNOBS_HASH_VERSION = 17;
 
 /**
  * v0.36 (D8 / CDX-2) — second-arg context for the cache key. The
@@ -953,6 +975,10 @@ export function knobsHash(
     // A floored write (trimmed/empty set) must not be served to a
     // floor-off lookup — same contamination class as autocut.
     `ms=${knobs.min_score === undefined ? 'none' : knobs.min_score.toFixed(4)}`,
+    // v=17 addition (raava/prod, append-only): navigational routing arm. A
+    // nav-routed write (enumeration/canonical-seeded set) must not be
+    // served to a nav-off lookup — same contamination class as relational.
+    `nav=${knobs.nav_routing ? 1 : 0}`,
   ];
   const h = createHash('sha256');
   h.update(parts.join('|'));
@@ -1140,6 +1166,12 @@ export function loadOverridesFromConfig(
     if (Number.isFinite(n) && n >= 0 && n <= 1) out.min_score = n;
   }
 
+  // raava/prod — navigational routing arm.
+  const nav = get('search.nav_routing');
+  if (nav !== undefined) {
+    out.nav_routing = nav === '1' || nav.toLowerCase() === 'true';
+  }
+
   return out;
 }
 
@@ -1184,6 +1216,8 @@ export const SEARCH_MODE_CONFIG_KEYS: ReadonlyArray<string> = Object.freeze([
   'search.autocut_jump',
   // raava/prod ontology v1 — absolute relevance floor
   'search.min_score',
+  // raava/prod ontology v1 (WS3c) — navigational routing
+  'search.nav_routing',
 ]);
 
 /**

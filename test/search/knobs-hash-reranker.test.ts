@@ -72,7 +72,7 @@ describe('KNOBS_HASH_VERSION + version invariants', () => {
     // the query-side tsquery, so rows written under the previous language
     // must not survive a `reindex-search-vector` language switch.
     // raava/prod: 15→16 to fold min_score (ms=).
-    expect(KNOBS_HASH_VERSION).toBe(16);
+    expect(KNOBS_HASH_VERSION).toBe(17);
   });
 
   test('hash is 16 hex chars regardless of reranker config', () => {

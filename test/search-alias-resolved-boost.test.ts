@@ -89,7 +89,7 @@ describe('alias_resolved boost stage', () => {
 });
 
 describe('KNOBS_HASH_VERSION', () => {
-  it('is 16 (15→16 folds raava/prod min_score, so floored result sets are never served to unfloored lookups)', () => {
-    expect(KNOBS_HASH_VERSION).toBe(16);
+  it('is 17 (16→17 folds raava/prod nav_routing, so nav-routed result sets are never served to unrouted lookups)', () => {
+    expect(KNOBS_HASH_VERSION).toBe(17);
   });
 });

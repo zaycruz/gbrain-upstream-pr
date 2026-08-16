@@ -82,6 +82,8 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       relational_retrieval_depth: 2,
       // raava/prod — relevance floor OFF by default (all bundles).
       min_score: undefined,
+      // raava/prod — navigational routing OFF by default (all bundles).
+      nav_routing: false,
     });
   });
 
@@ -115,6 +117,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       relationalRetrieval: true,
       relational_retrieval_depth: 2,
       min_score: undefined,
+      nav_routing: false,
     });
   });
 
@@ -146,6 +149,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       relationalRetrieval: true,
       relational_retrieval_depth: 2,
       min_score: undefined,
+      nav_routing: false,
     });
   });
 
@@ -426,7 +430,7 @@ describe('knobsHash determinism + cross-mode separation (CDX-4)', () => {
     // not survive a `reindex-search-vector` switch.
     // raava/prod bumped 15→16 to fold min_score (ms=) — a floored (possibly
     // empty) result set must not be served to an unfloored lookup.
-    expect(KNOBS_HASH_VERSION).toBe(16);
+    expect(KNOBS_HASH_VERSION).toBe(17);
   });
 
   test('T1 (codex): floor_ratio set vs unset produces DIFFERENT hashes (cache contamination prevention)', () => {
@@ -591,8 +595,8 @@ describe('v0.40.4 — graph_signals knob', () => {
 });
 
 describe('v0.42.3.0 — autocut knobs', () => {
-  test('KNOBS_HASH_VERSION is 16 (15→16 raava/prod min_score fold)', () => {
-    expect(KNOBS_HASH_VERSION).toBe(16);
+  test('KNOBS_HASH_VERSION is 17 (16→17 raava/prod nav_routing fold)', () => {
+    expect(KNOBS_HASH_VERSION).toBe(17);
   });
 
   test('bundle defaults: conservative off, balanced/tokenmax on @0.20', () => {

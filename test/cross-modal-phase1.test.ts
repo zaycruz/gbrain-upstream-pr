@@ -136,7 +136,7 @@ describe('D2 — knobsHash differs across cross-modal knob values', () => {
     return resolveSearchMode({ mode: 'balanced' });
   }
 
-  test('KNOBS_HASH_VERSION is 16 (cross-modal still appended; 15→16 raava/prod min_score fold)', () => {
+  test('KNOBS_HASH_VERSION is 17 (cross-modal still appended; 16→17 raava/prod nav_routing fold)', () => {
     // v0.35 ladder: 1→2 reranker, 2→3 floor_ratio. v0.36 piggybacks on v=3
     // with 7 cross-modal knobs + column/provider context. v0.40.4 (salem) +
     // v0.39 T21 (master) bump to v=4 for graph_signals + schema-pack fields.
@@ -151,7 +151,7 @@ describe('D2 — knobsHash differs across cross-modal knob values', () => {
     // plus `reindex-search-vector` must not keep serving pre-switch rows.
     // raava/prod: 15→16 min_score (ms=) — floored sets must not leak to
     // unfloored lookups.
-    expect(KNOBS_HASH_VERSION).toBe(16);
+    expect(KNOBS_HASH_VERSION).toBe(17);
   });
 
   test('flipping unified_multimodal changes the hash', () => {
