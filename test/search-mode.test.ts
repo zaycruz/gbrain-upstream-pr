@@ -80,6 +80,8 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       // v0.43 — relational recall OFF for conservative.
       relationalRetrieval: false,
       relational_retrieval_depth: 2,
+      // raava/prod — relevance floor OFF by default (all bundles).
+      min_score: undefined,
     });
   });
 
@@ -112,6 +114,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       // v0.43 — relational recall ON for balanced.
       relationalRetrieval: true,
       relational_retrieval_depth: 2,
+      min_score: undefined,
     });
   });
 
@@ -142,6 +145,7 @@ describe('SEARCH_MODES + MODE_BUNDLES canonical shape', () => {
       // v0.43 — relational recall ON for tokenmax.
       relationalRetrieval: true,
       relational_retrieval_depth: 2,
+      min_score: undefined,
     });
   });
 
@@ -420,7 +424,9 @@ describe('knobsHash determinism + cross-mode separation (CDX-4)', () => {
     // GBRAIN_FTS_LANGUAGE retokenizes both the trigger-built search_vector and
     // the query-side tsquery, so rows written under the previous language must
     // not survive a `reindex-search-vector` switch.
-    expect(KNOBS_HASH_VERSION).toBe(15);
+    // raava/prod bumped 15→16 to fold min_score (ms=) — a floored (possibly
+    // empty) result set must not be served to an unfloored lookup.
+    expect(KNOBS_HASH_VERSION).toBe(16);
   });
 
   test('T1 (codex): floor_ratio set vs unset produces DIFFERENT hashes (cache contamination prevention)', () => {
@@ -585,8 +591,8 @@ describe('v0.40.4 — graph_signals knob', () => {
 });
 
 describe('v0.42.3.0 — autocut knobs', () => {
-  test('KNOBS_HASH_VERSION is 15 (14→15 FTS language fold)', () => {
-    expect(KNOBS_HASH_VERSION).toBe(15);
+  test('KNOBS_HASH_VERSION is 16 (15→16 raava/prod min_score fold)', () => {
+    expect(KNOBS_HASH_VERSION).toBe(16);
   });
 
   test('bundle defaults: conservative off, balanced/tokenmax on @0.20', () => {

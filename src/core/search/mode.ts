@@ -274,6 +274,21 @@ export interface ModeBundle {
   relationalRetrieval: boolean;
   /** v0.43 — max hops for relational traversal. Default 2, hard-capped at 3. */
   relational_retrieval_depth: number;
+  /**
+   * raava/prod ontology v1 — absolute relevance floor. When set (a number in
+   * [0, 1]), results whose rerank_score falls below it are dropped AFTER
+   * rerank + alias-hop and BEFORE the limit slice, so an out-of-scope query
+   * returns an empty "no relevant content" answer instead of top-K
+   * word-overlap noise. No-op when the reranker didn't score the set
+   * (conservative mode / fail-open path — RRF scores are not comparable
+   * across queries, so no absolute floor is meaningful there). Alias-hop
+   * exact-title hits are exempt (they are explicit name lookups).
+   *
+   * Default undefined for ALL bundles (bit-for-bit prior behavior); raava
+   * production sets `search.min_score` in config. Override path: per-call
+   * SearchOpts.minScore → `search.min_score` config → mode bundle.
+   */
+  min_score: number | undefined;
 }
 
 /**
@@ -327,6 +342,8 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> = 
     relationalRetrieval: false,
     relational_retrieval_depth: 2,
     autocut_jump: 0.2,
+    // raava/prod — relevance floor OFF by default (upstream parity).
+    min_score: undefined,
   }),
   balanced: Object.freeze({
     cache_enabled: true,
@@ -385,6 +402,7 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> = 
     relationalRetrieval: true,
     relational_retrieval_depth: 2,
     autocut_jump: 0.2,
+    min_score: undefined,
   }),
   tokenmax: Object.freeze({
     cache_enabled: true,
@@ -436,6 +454,7 @@ export const MODE_BUNDLES: Readonly<Record<SearchMode, Readonly<ModeBundle>>> = 
     relationalRetrieval: true,
     relational_retrieval_depth: 2,
     autocut_jump: 0.2,
+    min_score: undefined,
   }),
 });
 
@@ -490,6 +509,8 @@ export interface SearchKeyOverrides {
   relationalRetrieval?: boolean;
   relational_retrieval_depth?: number;
   autocut_jump?: number;
+  // raava/prod — relevance floor override (see ModeBundle.min_score).
+  min_score?: number;
 }
 
 /**
@@ -539,6 +560,8 @@ export interface SearchPerCallOpts {
   // v0.43 — relational recall per-call overrides.
   relationalRetrieval?: boolean;
   relational_retrieval_depth?: number;
+  // raava/prod — relevance floor per-call override.
+  min_score?: number;
 }
 
 /**
@@ -634,6 +657,8 @@ export function resolveSearchMode(input: ResolveSearchModeInput): ResolvedSearch
     // v0.43 — relational recall resolved via the same pick chain.
     relationalRetrieval: pick('relationalRetrieval'),
     relational_retrieval_depth: pick('relational_retrieval_depth'),
+    // raava/prod — relevance floor resolved via the same pick chain.
+    min_score: pick('min_score'),
     resolved_mode,
     mode_valid: valid,
   };
@@ -779,7 +804,10 @@ export function attributeKnob<K extends keyof ModeBundle>(
 // to cache.ttl_seconds, with no warning and no way for an operator to tell.
 // Same one-time global cold-miss pattern as the bumps above; refills within
 // cache.ttl_seconds (3600s default).
-export const KNOBS_HASH_VERSION = 15;
+// raava/prod bump 15→16: min_score participates so a floored (possibly
+// empty) result set is never served to an unfloored lookup, and vice versa.
+// ONE-TIME cold-miss on upgrade as v=15 rows become unreachable.
+export const KNOBS_HASH_VERSION = 16;
 
 /**
  * v0.36 (D8 / CDX-2) — second-arg context for the cache key. The
@@ -921,6 +949,10 @@ export function knobsHash(
     // memoizes and validates against /^[a-z][a-z0-9_]*$/, so this stays a
     // cheap, bounded string.
     `fts=${getFtsLanguage()}`,
+    // v=16 addition (raava/prod, append-only): absolute relevance floor.
+    // A floored write (trimmed/empty set) must not be served to a
+    // floor-off lookup — same contamination class as autocut.
+    `ms=${knobs.min_score === undefined ? 'none' : knobs.min_score.toFixed(4)}`,
   ];
   const h = createHash('sha256');
   h.update(parts.join('|'));
@@ -1099,6 +1131,15 @@ export function loadOverridesFromConfig(
     if (Number.isFinite(n) && n >= 1 && n <= 3) out.relational_retrieval_depth = n;
   }
 
+  // raava/prod — absolute relevance floor. Accepts a number in [0, 1];
+  // out-of-range silently falls through (no override applied), same contract
+  // as floor_ratio. Applies to rerank_score only — see ModeBundle.min_score.
+  const ms = get('search.min_score');
+  if (ms !== undefined) {
+    const n = parseFloat(ms);
+    if (Number.isFinite(n) && n >= 0 && n <= 1) out.min_score = n;
+  }
+
   return out;
 }
 
@@ -1141,6 +1182,8 @@ export const SEARCH_MODE_CONFIG_KEYS: ReadonlyArray<string> = Object.freeze([
   'search.relational_retrieval',
   'search.relational_retrieval_depth',
   'search.autocut_jump',
+  // raava/prod ontology v1 — absolute relevance floor
+  'search.min_score',
 ]);
 
 /**
@@ -1192,4 +1235,3 @@ export async function loadSearchModeConfig(
     overrides: loadOverridesFromConfig(configMap),
   };
 }
-

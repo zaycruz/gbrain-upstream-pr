@@ -3330,6 +3330,12 @@ export class PGLiteEngine implements BrainEngine {
     const direction = opts?.direction ?? 'both';
     const limit = Math.min(Math.max(1, opts?.limit ?? 50), 200);
     const types = opts?.linkTypes && opts.linkTypes.length > 0 ? opts.linkTypes : null;
+    // Exclusion list only applies to type-agnostic walks; an explicit
+    // linkTypes filter is already an allowlist.
+    const excluded =
+      !types && opts?.excludedLinkTypes && opts.excludedLinkTypes.length > 0
+        ? opts.excludedLinkTypes
+        : null;
 
     // $1=seeds, $2=depth, $3=limit; optional scope/type params appended.
     const params: unknown[] = [seeds, depth, limit];
@@ -3347,7 +3353,16 @@ export class PGLiteEngine implements BrainEngine {
       params.push(types);
       typeFilter = `AND l.link_type = ANY($${params.length}::text[])`;
     }
+    let exclusionFilter = '';
+    if (excluded) {
+      params.push(excluded);
+      exclusionFilter = `AND l.link_type <> ALL($${params.length}::text[])`;
+    }
     const mentionsFilter = opts?.includeMentions ? '' : `AND l.link_source IS DISTINCT FROM 'mentions'`;
+    // Dead archive paths are pruned from walked results regardless of scope:
+    // wikilink_basename edges from the Obsidian migration point at slugs that
+    // still exist under .archive/ and would surface deleted content.
+    const archivePrune = `AND p2.slug NOT LIKE '.archive/%'`;
 
     const recurStep =
       direction === 'out'
@@ -3374,8 +3389,10 @@ export class PGLiteEngine implements BrainEngine {
           AND NOT (p2.id = ANY(w.visited))
           AND p2.source_id = w.seed_source
           AND p2.deleted_at IS NULL
+          ${archivePrune}
           ${mentionsFilter}
           ${typeFilter}
+          ${exclusionFilter}
       )
       SELECT n.source_id, n.slug,
              MIN(n.depth) AS hop,

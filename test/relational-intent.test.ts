@@ -76,6 +76,35 @@ describe('parseRelationalQuery — precision-first / no-match', () => {
     expect(parseRelationalQuery('summarize the q3 board deck')).toBeNull();
   });
 
+  // raava/prod ontology v1 verbs — knowledge-domain relationships.
+  test('who_rel: what superseded the old onboarding flow (what-form does not match; who-form does)', () => {
+    // The who_rel bank is who-led; "what superseded X" is intentionally not
+    // a pattern (v1 precision-first — a what-form would also catch content
+    // questions like "what replaced the dependency").
+    expect(parseRelationalQuery('what superseded the old onboarding flow')).toBeNull();
+    const r = parseRelationalQuery('who superseded the old onboarding flow');
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('who_rel');
+    expect(r!.seeds).toEqual(['old onboarding flow']);
+    expect(r!.linkTypes).toEqual(['supersedes']);
+    expect(r!.direction).toBe('in');
+  });
+
+  test('who_rel: who wrote the deployment runbook (authored_by)', () => {
+    const r = parseRelationalQuery('who wrote the deployment runbook');
+    expect(r!.kind).toBe('who_rel');
+    expect(r!.seeds).toEqual(['deployment runbook']);
+    expect(r!.linkTypes).toEqual(['authored_by']);
+    expect(r!.direction).toBe('both');
+  });
+
+  test('who_rel: who escalated the billing incident', () => {
+    const r = parseRelationalQuery('who escalated the billing incident');
+    expect(r!.kind).toBe('who_rel');
+    expect(r!.seeds).toEqual(['billing incident']);
+    expect(r!.linkTypes).toEqual(['escalates']);
+  });
+
   test('false-positive: "who invested TIME in learning Rust" does NOT match', () => {
     // "invested time in" is not "invested in" — adjacency guard.
     expect(parseRelationalQuery('who invested time in learning Rust')).toBeNull();

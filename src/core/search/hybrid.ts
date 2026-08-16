@@ -992,6 +992,9 @@ export async function hybridSearch(
       // Non-boolean AutocutInput shapes (Partial) aren't a v1 per-call surface,
       // so only the boolean toggle threads here.
       autocut: typeof opts?.autocut === 'boolean' ? opts.autocut : undefined,
+      // raava/prod — relevance floor per-call thread-through (same
+      // contamination class as autocut: floored sets differ).
+      min_score: opts?.minScore,
       // v0.43 — relational recall per-call thread-through. Per-call wins over
       // config override wins over mode bundle; without this the A/B eval gate
       // would be a no-op (both branches resolve to the same mode default).
@@ -1757,6 +1760,41 @@ export async function hybridSearch(
     autocutDecision = r.decision;
   }
 
+  // raava/prod ontology v1 — absolute relevance floor (default off
+  // everywhere; raava production sets `search.min_score`). Drops results
+  // whose rerank_score is below the threshold so an out-of-scope query
+  // returns an empty "no relevant content" answer instead of top-K
+  // word-overlap noise (the 90%-boundary-failure mode from the 100-query
+  // gold-set eval). Placement is deliberate:
+  //   - AFTER rerank + alias-hop: needs cross-encoder scores, which are the
+  //     only query-normalized 0..1 relevance signal in the pipeline (RRF
+  //     scores are not comparable across queries).
+  //   - AFTER autocut: a cliff-cut set still gets floor-gated; both are
+  //     trim-only and compose.
+  //   - BEFORE the limit slice: the floor, not `limit`, decides emptiness.
+  // No-op when <1 item carries a finite rerank_score (fail-open reranker
+  // path and conservative mode keep prior behavior bit-for-bit — no
+  // trustworthy absolute signal exists there). Alias-hop exact-title hits
+  // are exempt: an explicit name lookup must survive the floor.
+  let minScoreDecision: { threshold: number; dropped: number; kept: number } | undefined;
+  const minScore = resolvedMode.min_score;
+  if (minScore !== undefined && Number.isFinite(minScore) && minScore >= 0 && minScore <= 1) {
+    const scored = returnPool.filter(
+      (x) => typeof x.rerank_score === 'number' && Number.isFinite(x.rerank_score),
+    );
+    if (scored.length > 0) {
+      const before = returnPool.length;
+      returnPool = returnPool.filter(
+        (x) =>
+          x.alias_hit === true ||
+          typeof x.rerank_score !== 'number' ||
+          !Number.isFinite(x.rerank_score) ||
+          x.rerank_score >= minScore,
+      );
+      minScoreDecision = { threshold: minScore, dropped: before - returnPool.length, kept: returnPool.length };
+    }
+  }
+
   const sliced = returnPool.slice(offset, offset + limit);
   // v0.32.3 search-lite: budget enforcement at the main return path.
   // hybridSearchCached used to be the only place this fired; now bare
@@ -1778,6 +1816,7 @@ export async function hybridSearch(
       : {}),
     ...(adaptiveDecision ? { adaptive_return: adaptiveDecision } : {}),
     ...(autocutDecision ? { autocut: autocutDecision } : {}),
+    ...(minScoreDecision ? { min_score: minScoreDecision } : {}),
   });
   return budgeted;
 }
@@ -1842,6 +1881,10 @@ export async function hybridSearchCached(
       // this, an `autocut:false` (full top-K) call could be served a trimmed
       // autocut-on cache row, or vice versa.
       autocut: typeof opts?.autocut === 'boolean' ? opts.autocut : undefined,
+      // raava/prod — min_score threaded through the cache resolver so the
+      // knobsHash `ms=` bit reflects the per-call override (a floored write
+      // must not be served to an unfloored lookup, or vice versa).
+      min_score: opts?.minScore,
       // v0.43 — relational recall per-call thread-through. Per-call wins over
       // config override wins over mode bundle; without this the A/B eval gate
       // would be a no-op (both branches resolve to the same mode default).
@@ -1987,6 +2030,7 @@ export async function hybridSearchCached(
         ...(hit.meta?.embedding_column ? { embedding_column: hit.meta.embedding_column } : {}),
         ...(hit.meta?.adaptive_return ? { adaptive_return: hit.meta.adaptive_return } : {}),
         ...(hit.meta?.autocut ? { autocut: hit.meta.autocut } : {}),
+        ...(hit.meta?.min_score ? { min_score: hit.meta.min_score } : {}),
         // Per-call budget: prefer the STORED budget record, which carries
         // the true dropped count from the write-time cut — the
         // re-application above ran on an already-cut set and reads
@@ -2065,6 +2109,7 @@ export async function hybridSearchCached(
     ...(innerMeta?.embedding_column ? { embedding_column: innerMeta.embedding_column } : {}),
     ...(innerMeta?.adaptive_return ? { adaptive_return: innerMeta.adaptive_return } : {}),
     ...(innerMeta?.autocut ? { autocut: innerMeta.autocut } : {}),
+    ...(innerMeta?.min_score ? { min_score: innerMeta.min_score } : {}),
     // Per-call budget: prefer the INNER meta's budget record. The inner
     // hybridSearch already enforced the same resolved budget (per-call wins
     // in resolveSearchMode), so the re-application above sees an

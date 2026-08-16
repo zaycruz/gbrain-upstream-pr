@@ -80,6 +80,30 @@ export const KNOWN_LINK_TYPES: ReadonlySet<string> = new Set([
   'source',
   'related_to',
   'wikilink_basename',
+  // raava/prod ontology v1 — structural + semantic edges emitted by the
+  // extract phase (ontology-edges.ts) and declared in the raava-base pack.
+  'filed_under',
+  'authored_by',
+  'references',
+  'supersedes',
+  'governs',
+  'implements',
+  'escalates',
+  'decided_in',
+  'depends_on',
+]);
+
+/**
+ * raava/prod: edge types that must NEVER drive a relational answer.
+ * `mentions` is undifferentiated co-occurrence and `wikilink_basename` is an
+ * Obsidian-migration artifact (half its targets are dead .archive/ paths);
+ * traversing either turns relational queries into word-overlap noise.
+ * Kept in KNOWN_LINK_TYPES for back-compat (ingest still writes them) but
+ * excluded from fanout — see relationalFanout opts.excludedLinkTypes.
+ */
+export const NON_RELATIONAL_LINK_TYPES: ReadonlySet<string> = new Set([
+  'mentions',
+  'wikilink_basename',
 ]);
 
 // Seeds that are pronouns / generic nouns, not entities. If a pattern's seed
@@ -111,6 +135,10 @@ const WHO_REL_VERBS: Array<{ verb: string; linkTypes: string[]; direction: Relat
   { verb: 'advises|advised', linkTypes: ['advises'], direction: 'in' },
   { verb: 'works at|worked at|works for', linkTypes: ['works_at'], direction: 'in' },
   { verb: 'attended', linkTypes: ['attended'], direction: 'in' },
+  // raava/prod ontology v1 verbs — knowledge-domain relationships.
+  { verb: 'superseded|replaced|obsoleted|deprecated', linkTypes: ['supersedes'], direction: 'in' },
+  { verb: 'wrote|authored|drafted', linkTypes: ['authored_by'], direction: 'both' },
+  { verb: 'escalated|flagged', linkTypes: ['escalates'], direction: 'both' },
 ];
 
 function buildPatterns(vocab?: RelationVocab): CompiledPattern[] {

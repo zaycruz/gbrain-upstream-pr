@@ -1162,6 +1162,15 @@ export interface SearchOpts {
    */
   relationalRetrieval?: boolean;
   relationalRetrievalDepth?: number;
+  /**
+   * raava/prod ontology v1 — absolute relevance floor per-call override.
+   * Number in [0, 1]; results whose rerank_score falls below it are dropped
+   * after rerank + alias-hop, before the limit slice. No-op when the
+   * reranker didn't score the set. Per-call wins over the
+   * `search.min_score` config key wins over the mode bundle (undefined
+   * everywhere by default = off).
+   */
+  minScore?: number;
 }
 
 /**
@@ -1279,6 +1288,14 @@ export interface RelationalFanoutRow {
 export interface RelationalFanoutOpts {
   /** Edge types to traverse; null/empty = type-agnostic. */
   linkTypes?: string[] | null;
+  /**
+   * Edge types to NEVER traverse, even when linkTypes is null (type-agnostic
+   * walk). raava/prod ontology v1: used to keep undifferentiated
+   * co-occurrence (`mentions`) and Obsidian-migration artifacts
+   * (`wikilink_basename`, half its targets are dead .archive/ paths) out of
+   * relational answers. Ignored when linkTypes names types explicitly.
+   */
+  excludedLinkTypes?: string[] | null;
   /** Direction from each seed. Default 'both'. */
   direction?: 'in' | 'out' | 'both';
   /** Max hops. Default 2, hard-capped at 3. */
@@ -1641,6 +1658,12 @@ export interface HybridSearchMeta {
    * `gbrain search --explain`.
    */
   autocut?: import('./search/autocut.ts').AutocutDecision;
+  /**
+   * raava/prod ontology v1 — absolute relevance-floor decision (threshold,
+   * dropped, kept). Omitted when the floor is off or no rerank scores were
+   * present (no-op). Surfaced for `gbrain search --explain`.
+   */
+  min_score?: { threshold: number; dropped: number; kept: number };
   /**
    * v0.32.x (search-lite): token budget enforcement metadata. Omitted when
    * no budget was applied (backward-compatible with pre-search-lite

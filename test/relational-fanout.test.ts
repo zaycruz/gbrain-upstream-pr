@@ -55,6 +55,13 @@ beforeAll(async () => {
 
   // Soft-delete one investor; it must never surface.
   await eng.executeRaw(`UPDATE pages SET deleted_at = now() WHERE slug = $1`, ['people/deleted-investor']);
+
+  // raava/prod ontology v1 fixtures: a wikilink_basename edge (Obsidian
+  // migration artifact) and a live .archive/ target page. Both must stay
+  // out of relational answers.
+  await eng.putPage('.archive/old-note', { type: 'concept', title: 'Old Note', compiled_truth: 'archived body', timeline: '' });
+  await eng.addLink('companies/widget-co', '.archive/old-note', '', 'wikilink_basename', 'ontology-structural');
+  await eng.addLink('people/mentioner', 'companies/widget-co', '', 'wikilink_basename', 'ontology-structural');
 }, 60_000);
 
 afterAll(async () => {
@@ -79,9 +86,15 @@ describe('relationalFanout', () => {
 
   test('mentions excluded by default, included on opt-in', async () => {
     const off = await eng.relationalFanout(['companies/widget-co'], { direction: 'in' });
-    expect(off.map(r => r.slug)).not.toContain('people/mentioner');
+    // raava/prod callers always pass excludedLinkTypes for noise edges; the
+    // engine-level contract is that excludedLinkTypes removes them.
+    const offExcluded = await eng.relationalFanout(['companies/widget-co'], {
+      direction: 'in',
+      excludedLinkTypes: ['wikilink_basename'],
+    });
+    expect(offExcluded.map(r => r.slug)).not.toContain('people/mentioner');
     // type-agnostic also picks up the works_at neighbor
-    expect(off.map(r => r.slug).sort()).toEqual(['people/employee-c', 'people/investor-a', 'people/investor-b']);
+    expect(offExcluded.map(r => r.slug).sort()).toEqual(['people/employee-c', 'people/investor-a', 'people/investor-b']);
 
     const on = await eng.relationalFanout(['companies/widget-co'], { direction: 'in', includeMentions: true });
     expect(on.map(r => r.slug)).toContain('people/mentioner');
@@ -111,5 +124,37 @@ describe('relationalFanout', () => {
     const r1 = await eng.relationalFanout(['companies/widget-co'], { direction: 'in' });
     const r2 = await eng.relationalFanout(['companies/widget-co'], { direction: 'in' });
     expect(JSON.stringify(r1)).toBe(JSON.stringify(r2));
+  });
+
+  test('raava/prod: excludedLinkTypes keeps wikilink_basename out of type-agnostic walks', async () => {
+    // mentioner reaches widget-co via mentions AND wikilink_basename. With
+    // mentions already source-filtered and wikilink excluded by type, the
+    // type-agnostic walk must not surface mentioner at all.
+    const rows = await eng.relationalFanout(['companies/widget-co'], {
+      direction: 'in',
+      excludedLinkTypes: ['wikilink_basename'],
+    });
+    expect(rows.map(r => r.slug)).not.toContain('people/mentioner');
+    expect(rows.map(r => r.slug).sort()).toEqual(['people/employee-c', 'people/investor-a', 'people/investor-b']);
+  });
+
+  test('raava/prod: excludedLinkTypes is ignored when linkTypes is explicit (allowlist wins)', async () => {
+    const rows = await eng.relationalFanout(['companies/widget-co'], {
+      direction: 'in',
+      linkTypes: ['wikilink_basename'],
+      excludedLinkTypes: ['wikilink_basename'],
+    });
+    expect(rows.map(r => r.slug)).toContain('people/mentioner');
+  });
+
+  test('raava/prod: .archive/ targets are pruned from walked results', async () => {
+    // widget-co → .archive/old-note via wikilink_basename, direction out.
+    // Even opting INTO wikilink traversal, the archive page must not surface.
+    const rows = await eng.relationalFanout(['companies/widget-co'], {
+      direction: 'out',
+      linkTypes: ['wikilink_basename'],
+    });
+    expect(rows.map(r => r.slug)).not.toContain('.archive/old-note');
+    expect(rows.every(r => !r.slug.startsWith('.archive/'))).toBe(true);
   });
 });

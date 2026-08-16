@@ -28,7 +28,12 @@ import type { BrainEngine } from '../engine.ts';
 import type { SearchResult, PageType, RelationalFanoutRow } from '../types.ts';
 import { createAuditWriter } from '../audit/audit-writer.ts';
 import { resolveEntitySlugWithSource } from '../entities/resolve.ts';
-import { parseRelationalQuery, type RelationalQuery, type RelationVocab } from './relational-intent.ts';
+import {
+  NON_RELATIONAL_LINK_TYPES,
+  parseRelationalQuery,
+  type RelationalQuery,
+  type RelationVocab,
+} from './relational-intent.ts';
 
 export interface RelationalArmOpts {
   sourceId?: string;
@@ -174,6 +179,9 @@ export async function buildRelationalArm(
     const sources = scopeSources(opts);
     const fanoutOpts = {
       linkTypes: parsed.linkTypes,
+      // Type-agnostic walks (connects/intro) must not traverse
+      // co-occurrence noise; explicit-type walks ignore this allowlist-style.
+      excludedLinkTypes: Array.from(NON_RELATIONAL_LINK_TYPES),
       direction: parsed.direction,
       depth: opts.depth,
       limit: opts.limit,

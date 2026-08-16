@@ -3485,6 +3485,12 @@ export class PostgresEngine implements BrainEngine {
     const direction = opts?.direction ?? 'both';
     const limit = Math.min(Math.max(1, opts?.limit ?? 50), 200);
     const types = opts?.linkTypes && opts.linkTypes.length > 0 ? opts.linkTypes : null;
+    // Exclusion list only applies to type-agnostic walks; an explicit
+    // linkTypes filter is already an allowlist.
+    const excluded =
+      !types && opts?.excludedLinkTypes && opts.excludedLinkTypes.length > 0
+        ? opts.excludedLinkTypes
+        : null;
 
     // Scope is applied to SEED selection only. Within-source traversal is
     // enforced separately by `p2.source_id = w.seed_source` in the recursive
@@ -3497,6 +3503,11 @@ export class PostgresEngine implements BrainEngine {
         ? sql`AND p.source_id = ${opts.sourceId}`
         : sql``;
     const typeFilter = types ? sql`AND l.link_type = ANY(${types}::text[])` : sql``;
+    const exclusionFilter = excluded ? sql`AND l.link_type <> ALL(${excluded}::text[])` : sql``;
+    // Dead archive paths are pruned from walked results regardless of scope:
+    // wikilink_basename edges from the Obsidian migration point at slugs that
+    // still exist under .archive/ and would surface deleted content.
+    const archivePrune = sql`AND p2.slug NOT LIKE '.archive/%'`;
     const mentionsFilter = opts?.includeMentions
       ? sql``
       : sql`AND l.link_source IS DISTINCT FROM 'mentions'`;
@@ -3527,8 +3538,10 @@ export class PostgresEngine implements BrainEngine {
           AND NOT (p2.id = ANY(w.visited))
           AND p2.source_id = w.seed_source
           AND p2.deleted_at IS NULL
+          ${archivePrune}
           ${mentionsFilter}
           ${typeFilter}
+          ${exclusionFilter}
       )
       SELECT n.source_id, n.slug,
              MIN(n.depth) AS hop,
