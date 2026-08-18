@@ -26,6 +26,7 @@ import {
 import { applyAutocut, type AutocutDecision } from './autocut.ts';
 import { buildRelationalArm } from './relational-recall.ts';
 import { buildNavArm } from './nav-recall.ts';
+import { buildTemporalArm } from './temporal-recall.ts';
 import { loadConfigWithEngine } from '../config.ts';
 import { dedupResults } from './dedup.ts';
 import { applyReranker } from './rerank.ts';
@@ -802,6 +803,8 @@ export interface HybridSearchOpts extends SearchOpts {
   onRelationalMeta?: (meta: import('./relational-recall.ts').RelationalArmMeta) => void;
   /** raava/prod (WS3c) — observability sink for the navigational recall arm. */
   onNavMeta?: (meta: import('./nav-recall.ts').NavArmMeta) => void;
+  /** raava/prod (WS5a) — observability sink for the temporal recall arm. */
+  onTemporalMeta?: (meta: import('./temporal-recall.ts').TemporalArmMeta) => void;
   /**
    * T4/D5 — per-call search-mode selector (one of SEARCH_MODES). Selects the
    * whole mode bundle for this call, overriding the server-configured mode.
@@ -1234,8 +1237,10 @@ export async function hybridSearch(
   // without a resolvable pack gets an empty type set (enumerate never
   // fires) rather than an error. Empty for non-nav queries → pure no-op.
   let navList: SearchResult[] = [];
+  let navPackTypes: ReadonlySet<string> = new Set();
   if (resolvedMode.nav_routing) {
     let packTypes: ReadonlySet<string> = new Set();
+    let navCanonical: import('./nav-recall.ts').NavCanonicalConfig | undefined;
     try {
       const { loadActivePackBestEffort } = await import('../schema-pack/best-effort.ts');
       const pack = await loadActivePackBestEffort({
@@ -1250,15 +1255,54 @@ export async function hybridSearch(
           (typeof t === 'string' ? t : t.name).toLowerCase(),
         ),
       );
+      // WS5b — pack-owned canonical doc routing (manifest.nav_canonical).
+      navCanonical = (pack?.manifest as Record<string, unknown> | undefined)
+        ?.nav_canonical as import('./nav-recall.ts').NavCanonicalConfig | undefined;
     } catch {
       // pack resolution failure must never break search — no types, no enumerate.
     }
+    navPackTypes = packTypes;
     navList = await buildNavArm(engine, query, {
       sourceId: opts?.sourceId,
       sourceIds: opts?.sourceIds,
       packTypes,
+      navCanonical,
       limit: opts?.limit ?? resolvedMode.searchLimit,
       onMeta: opts?.onNavMeta,
+    });
+  }
+
+  // raava/prod WS5a — build the temporal recall arm ONCE here so
+  // date-resolved answers contribute on ALL THREE paths (same placement
+  // contract as the relational/nav arms). Reuses the nav arm's pack load
+  // when both are on; loads independently when temporal_arm is on but
+  // nav_routing is off. Empty for non-temporal queries → pure no-op.
+  let temporalList: SearchResult[] = [];
+  if (resolvedMode.temporal_arm) {
+    let packTypes = navPackTypes;
+    if (packTypes.size === 0 && !resolvedMode.nav_routing) {
+      try {
+        const { loadActivePackBestEffort } = await import('../schema-pack/best-effort.ts');
+        const pack = await loadActivePackBestEffort({
+          remote: true,
+          sourceId: opts?.sourceId,
+        } as import('../operations.ts').OperationContext);
+        const declared = pack?.manifest.page_types ?? [];
+        packTypes = new Set(
+          declared.map((t: { name: string } | string) =>
+            (typeof t === 'string' ? t : t.name).toLowerCase(),
+          ),
+        );
+      } catch {
+        // pack resolution failure must never break search.
+      }
+    }
+    temporalList = await buildTemporalArm(engine, query, {
+      sourceId: opts?.sourceId,
+      sourceIds: opts?.sourceIds,
+      packTypes,
+      limit: opts?.limit ?? resolvedMode.searchLimit,
+      onMeta: opts?.onTemporalMeta,
     });
   }
 
@@ -1299,14 +1343,15 @@ export async function hybridSearch(
     // chunk-grain keyword FTS alone fails (D1).
     // issue #160: stamp unverified stubs BEFORE fusion so the compiled-truth
     // boost skips them (flag survives fusion's result spread).
-    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList, ...navList]);
+    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList, ...navList, ...temporalList]);
     let noEmbedResults = keywordResults;
-    if (relationalList.length > 0 || titleResults.length > 0 || navList.length > 0) {
+    if (relationalList.length > 0 || titleResults.length > 0 || navList.length > 0 || temporalList.length > 0) {
       const fk = opts?.rrfK ?? RRF_K;
       const noEmbedLists = [{ list: keywordResults, k: fk }];
       if (titleResults.length > 0) noEmbedLists.push({ list: titleResults, k: fk });
       if (relationalList.length > 0) noEmbedLists.push({ list: relationalList, k: fk });
       if (navList.length > 0) noEmbedLists.push({ list: navList, k: fk });
+      if (temporalList.length > 0) noEmbedLists.push({ list: temporalList, k: fk });
       noEmbedResults = rrfFusionWeighted(noEmbedLists, shouldBoostCompiledTruth(detailResolved));
     }
     if (noEmbedResults.length > 0) {
@@ -1544,14 +1589,15 @@ export async function hybridSearch(
     // here too (same rationale as the no-embedding-provider path — D1).
     // issue #160: stamp unverified stubs BEFORE fusion (see the
     // no-embedding-provider path for rationale).
-    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList, ...navList]);
+    await stampUnverifiedExtractions(engine, [...keywordResults, ...titleResults, ...relationalList, ...navList, ...temporalList]);
     let fallbackResults = keywordResults;
-    if (relationalList.length > 0 || titleResults.length > 0 || navList.length > 0) {
+    if (relationalList.length > 0 || titleResults.length > 0 || navList.length > 0 || temporalList.length > 0) {
       const fk = opts?.rrfK ?? RRF_K;
       const fallbackLists = [{ list: keywordResults, k: fk }];
       if (titleResults.length > 0) fallbackLists.push({ list: titleResults, k: fk });
       if (relationalList.length > 0) fallbackLists.push({ list: relationalList, k: fk });
       if (navList.length > 0) fallbackLists.push({ list: navList, k: fk });
+      if (temporalList.length > 0) fallbackLists.push({ list: temporalList, k: fk });
       fallbackResults = rrfFusionWeighted(fallbackLists, shouldBoostCompiledTruth(detail));
     }
     if (fallbackResults.length > 0) {
@@ -1641,6 +1687,14 @@ export async function hybridSearch(
   // non-nav queries → pure no-op.
   if (navList.length > 0 && effectiveModality !== 'image') {
     allLists.push({ list: navList, k: baseRrfK });
+  }
+
+  // raava/prod WS5a — temporal recall arm (sixth RRF arm), built above so
+  // it also contributes on the keyword-only paths. Neutral weight
+  // (baseRrfK), same contract as nav. Empty for non-temporal queries →
+  // pure no-op.
+  if (temporalList.length > 0 && effectiveModality !== 'image') {
+    allLists.push({ list: temporalList, k: baseRrfK });
   }
 
   // issue #160: stamp unverified auto-extracted stubs across ALL candidate
@@ -1940,6 +1994,9 @@ export async function hybridSearchCached(
       // raava/prod — nav_routing threaded through the cache resolver so the
       // knobsHash `nav=` bit reflects the per-call override.
       nav_routing: opts?.navRouting,
+      // raava/prod WS5a — temporal arm threaded through the cache resolver
+      // so the knobsHash `tmp=` bit reflects the per-call override.
+      temporal_arm: opts?.temporalArm,
       // v0.43 — relational recall per-call thread-through. Per-call wins over
       // config override wins over mode bundle; without this the A/B eval gate
       // would be a no-op (both branches resolve to the same mode default).

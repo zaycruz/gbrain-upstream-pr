@@ -853,6 +853,14 @@ export interface SearchResult {
    * for organic keyword/vector/relational results.
    */
   nav_kind?: 'enumerate' | 'canonical';
+  /**
+   * raava/prod WS5a — set when this result was surfaced by the temporal
+   * recall arm: 'exact_date' (slug probe / day window), 'month_window',
+   * 'superlative' (newest-first enumeration), or 'relative_window'
+   * (trailing N-day recency). Drives `gbrain search --explain`
+   * attribution. Absent for organic keyword/vector/relational results.
+   */
+  temporal_kind?: 'exact_date' | 'month_window' | 'superlative' | 'relative_window';
 }
 
 /**
@@ -1183,10 +1191,18 @@ export interface SearchOpts {
    * raava/prod ontology v1 (WS3c) — navigational routing per-call override.
    * When on, navigational queries route to type enumeration / canonical
    * brain-protocol docs via the nav recall arm. Per-call wins over the
-   * `search.nav_routing` config key wins over the mode bundle (false
-   * everywhere by default = off).
-   */
+  * `search.nav_routing` config key wins over the mode bundle (false
+  * everywhere by default = off).
+  */
   navRouting?: boolean;
+  /**
+   * raava/prod WS5a — temporal recall arm per-call override. When on,
+   * date-scoped queries (exact date, month window, superlative, relative
+   * recency) inject date-resolved candidates as a sixth RRF arm. Per-call
+   * wins over the `search.temporal_arm` config key wins over the mode
+   * bundle (false everywhere by default = off).
+   */
+  temporalArm?: boolean;
 }
 
 /**

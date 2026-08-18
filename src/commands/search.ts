@@ -77,6 +77,7 @@ const KNOB_DESCRIPTIONS: Record<keyof ModeBundle, string> = {
   // raava/prod ontology v1
   min_score: 'Absolute relevance floor on rerank_score (0..1, undefined = off; below-floor results dropped)',
   nav_routing: 'Navigational routing arm (enumerate types / canonical brain docs instead of word overlap)',
+  temporal_arm: 'Temporal recall arm (date-scoped queries inject date-resolved candidates; no-op otherwise)',
 };
 
 interface SearchModesReport {

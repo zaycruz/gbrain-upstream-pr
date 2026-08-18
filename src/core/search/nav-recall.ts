@@ -31,9 +31,28 @@ export interface NavArmOpts {
   sourceIds?: string[];
   /** Declared page types from the active schema pack (lowercase). */
   packTypes: ReadonlySet<string>;
+  /** WS5b — pack-declared canonical doc config (manifest.nav_canonical). */
+  navCanonical?: NavCanonicalConfig;
   /** Cap on enumeration rows (default 20, hard-capped at 50). */
   limit?: number;
   onMeta?: (meta: NavArmMeta) => void;
+}
+
+/**
+ * WS5b — pack-configurable canonical docs. The active schema pack may
+ * declare `nav_canonical` in its manifest:
+ *
+ *   nav_canonical:
+ *     priority: [slug, ...]                                # replaces CANONICAL_DOC_SLUGS
+ *     topics: [{ pattern: "quer|cli", slugs: [..] }, ...]  # prepended to the topic map
+ *
+ * Patterns compile case-insensitively; invalid regexes are skipped.
+ * When the pack declares nothing, the hardcoded defaults below apply
+ * bit-for-bit (older packs / non-raava brains keep current behavior).
+ */
+export interface NavCanonicalConfig {
+  priority?: string[];
+  topics?: Array<{ pattern: string; slugs: string[] }>;
 }
 
 export interface NavArmMeta {
@@ -78,6 +97,29 @@ const CANONICAL_TOPIC_MAP: ReadonlyArray<{ re: RegExp; slugs: string[] }> = [
   { re: /\bdistill|nightly|pipeline/i, slugs: ['write_policy', 'tools/gbrain-reference'] },
   { re: /\bdecisions?\b/i, slugs: ['schema', 'resolver'] },
 ];
+
+/**
+ * Resolve the effective canonical priority list + topic map for one arm
+ * build. Pack topics are checked BEFORE the hardcoded defaults so the
+ * ontology pack owns routing for its domain.
+ */
+function resolveCanonicalConfig(
+  packCfg: NavCanonicalConfig | undefined,
+): { priority: ReadonlyArray<string>; topicMap: ReadonlyArray<{ re: RegExp; slugs: string[] }> } {
+  if (!packCfg || (!packCfg.priority?.length && !packCfg.topics?.length)) {
+    return { priority: CANONICAL_DOC_SLUGS, topicMap: CANONICAL_TOPIC_MAP };
+  }
+  const priority = packCfg.priority?.length ? packCfg.priority : CANONICAL_DOC_SLUGS;
+  const packTopics: Array<{ re: RegExp; slugs: string[] }> = [];
+  for (const t of packCfg.topics ?? []) {
+    try {
+      packTopics.push({ re: new RegExp(t.pattern, 'i'), slugs: t.slugs });
+    } catch {
+      // Invalid pack regex — skip the entry, keep the rest.
+    }
+  }
+  return { priority, topicMap: [...packTopics, ...CANONICAL_TOPIC_MAP] };
+}
 
 function scopeSources(opts: NavArmOpts): string[] {
   if (opts.sourceIds && opts.sourceIds.length > 0) return opts.sourceIds;
@@ -156,11 +198,12 @@ export async function buildNavArm(
 
     if (parsed.kind === 'canonical' && parsed.topic) {
       // Topic-specific canonicals first, then the general priority list.
+      const { priority, topicMap } = resolveCanonicalConfig(opts.navCanonical);
       const wanted: string[] = [];
-      for (const m of CANONICAL_TOPIC_MAP) {
+      for (const m of topicMap) {
         if (m.re.test(parsed.topic)) wanted.push(...m.slugs);
       }
-      wanted.push(...CANONICAL_DOC_SLUGS);
+      wanted.push(...priority);
       const dedup = Array.from(new Set(wanted.map((s) => s.toLowerCase())));
 
       const rows = await engine.executeRaw<{

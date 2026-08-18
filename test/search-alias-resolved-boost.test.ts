@@ -90,6 +90,6 @@ describe('alias_resolved boost stage', () => {
 
 describe('KNOBS_HASH_VERSION', () => {
   it('is 17 (16→17 folds raava/prod nav_routing, so nav-routed result sets are never served to unrouted lookups)', () => {
-    expect(KNOBS_HASH_VERSION).toBe(17);
+    expect(KNOBS_HASH_VERSION).toBe(18);
   });
 });

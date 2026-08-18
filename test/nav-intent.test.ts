@@ -58,6 +58,23 @@ describe('parseNavQuery — canonical', () => {
     expect(parseNavQuery('how to query the brain from the cli', PACK)!.kind).toBe('canonical');
   });
 
+  // WS5b — phrasings observed missing in the 100-query eval.
+  test('"where do agent journals live" → canonical', () => {
+    const r = parseNavQuery('where do agent journals live', PACK);
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('canonical');
+  });
+
+  test('"how are meeting notes ingested into the brain" → canonical', () => {
+    const r = parseNavQuery('how are meeting notes ingested into the brain', PACK);
+    expect(r).not.toBeNull();
+    expect(r!.kind).toBe('canonical');
+  });
+
+  test('non-brain "where do bugs live" → null (domain gate)', () => {
+    expect(parseNavQuery('where do bugs live', PACK)).toBeNull();
+  });
+
   test('"how does an agent start a session with the remote brain" → canonical', () => {
     expect(parseNavQuery('how does an agent start a session with the remote brain', PACK)!.kind).toBe('canonical');
   });

@@ -70,6 +70,12 @@ const ENUMERATE_LIST_RE =
 const CANONICAL_RE =
   /^\s*how\s+(?:do|does|can|should|would)\s+(?:i|we|an?\s+\w+|agents?|one)\s+(.+?)\s*\??$/i;
 const HOW_TO_RE = /^\s*how\s+to\s+(.+?)\s*\??$/i;
+// WS5b — observed nav miss phrasings from the 100-query eval:
+//   "where do agent journals live"     → canonical (storage/layout topic)
+//   "how are meeting notes ingested"   → canonical (passive-voice process)
+//   "how to query the brain from the cli" already matched HOW_TO_RE.
+const WHERE_LIVE_RE = /^\s*where\s+(?:do|does|are)\s+(?:the\s+)?(.+?)\s+(?:live|stored|kept|filed)\s*\??$/i;
+const HOW_PASSIVE_RE = /^\s*how\s+(?:are|is|get|gets)\s+(.+?)\s+(?:ingested|captured|stored|written|imported|indexed|processed)\b/i;
 
 /**
  * Parse a query into a NavQuery, or null when it isn't navigational.
@@ -98,6 +104,17 @@ export function parseNavQuery(query: string, packTypes: ReadonlySet<string>): Na
   if (cm && cm[1]) {
     const topic = cm[1].trim();
     if (/\b(brain|vault|gbrain|facts?\s+fence|facts?\b|run-?logs?|wikilinks?|schema|ontology|knowledge\s+graph)\b/i.test(topic)) {
+      return { kind: 'canonical', topic };
+    }
+  }
+
+  // "where do X live" / "how are X ingested" — the whole matched phrase is
+  // the topic. Same brain-domain gate as CANONICAL_RE so "where do bugs
+  // live" never routes to brain protocol docs.
+  const pm = q.match(WHERE_LIVE_RE) ?? q.match(HOW_PASSIVE_RE);
+  if (pm && pm[1]) {
+    const topic = pm[0].replace(/\?+$/, '').trim();
+    if (/\b(brain|vault|gbrain|facts?\b|run-?logs?|journals?|meeting\s+notes?|wikilinks?|schema|ontology|decisions?|agents?)\b/i.test(topic)) {
       return { kind: 'canonical', topic };
     }
   }
