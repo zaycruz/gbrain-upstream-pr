@@ -1827,6 +1827,9 @@ export async function hybridSearch(
   // path and conservative mode keep prior behavior bit-for-bit — no
   // trustworthy absolute signal exists there). Alias-hop exact-title hits
   // are exempt: an explicit name lookup must survive the floor.
+  // When the reranker scored a partial head (topNIn < pool size), the
+  // un-scored tail is NOT exempt: it carries no cross-encoder signal and
+  // is precisely the noise the floor exists to remove.
   let minScoreDecision: { threshold: number; dropped: number; kept: number } | undefined;
   const minScore = resolvedMode.min_score;
   if (minScore !== undefined && Number.isFinite(minScore) && minScore >= 0 && minScore <= 1) {
@@ -1838,9 +1841,7 @@ export async function hybridSearch(
       returnPool = returnPool.filter(
         (x) =>
           x.alias_hit === true ||
-          typeof x.rerank_score !== 'number' ||
-          !Number.isFinite(x.rerank_score) ||
-          x.rerank_score >= minScore,
+          (typeof x.rerank_score === 'number' && Number.isFinite(x.rerank_score) && x.rerank_score >= minScore),
       );
       minScoreDecision = { threshold: minScore, dropped: before - returnPool.length, kept: returnPool.length };
     }
