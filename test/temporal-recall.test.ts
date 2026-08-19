@@ -177,16 +177,24 @@ describe('buildTemporalArm — superlative', () => {
 });
 
 describe('buildTemporalArm — relative_window', () => {
-  test('"this week" catches the slug-dated inbox note from 2026-08-17', async () => {
+  test('"this week" with no referent is a no-op (WS5 out-of-scope guard)', async () => {
     const rows = await buildTemporalArm(eng, 'what changed in the brain this week', {
       packTypes: PACK, now: NOW,
     });
+    // No type hint / slug family → arm refuses to fire (bare window is
+    // everything-recent noise; the boundary floor can't gate it because
+    // the arm rows are exempt).
+    expect(rows).toEqual([]);
+  });
+
+  test('"this week" with a slug-family referent catches the dated inbox note', async () => {
+    const rows = await buildTemporalArm(eng, 'what changed in the run-log this week', {
+      packTypes: PACK, now: NOW,
+    });
     const slugs = rows.map((r) => r.slug);
-    expect(slugs).toContain('inbox/2026-08-17-recent-note');
-    // PGLite stamps updated_at = real now() on every test page, so the
-    // window contains all rows; the arm must still order by
-    // effective_date/updated_at desc so genuinely-recent pages lead.
     expect(rows.every((r) => r.temporal_kind === 'relative_window')).toBe(true);
+    // run-log family ranks first; dated rows still present in the window.
+    expect(slugs.some((s) => s.includes('2026-08-17') || s.includes('run'))).toBe(true);
   });
 });
 

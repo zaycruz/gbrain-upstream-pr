@@ -170,12 +170,27 @@ export function parseTemporalQuery(
   // 4. Superlative — "newest decision", "most recent report".
   const sup = q.match(SUPERLATIVE_RE);
   if (sup) {
+    // Guard against out-of-scope superlatives. "newest decision" has an
+    // in-brain referent (pageType 'decision' or a slug family); "latest
+    // stock price for NVIDIA" / "current bitcoin price" have neither —
+    // firing the arm there injects recent inbox/run-log noise past the
+    // boundary-rejection floor. Superlative only arms when the query
+    // names something the brain actually stores.
+    if (!typeHint && !slugFamily) return null;
     return { kind: 'superlative', pageType: typeHint, slugFamily };
   }
 
   // 5. Relative window — "this week", "recent", "today".
   const rel = q.match(RELATIVE_RE);
   if (rel) {
+    // Same out-of-scope guard as superlative: "weather in new york
+    // today" / "what time is it in tokyo" carry a relative token but no
+    // in-brain referent — the arm would inject today's inbox/run-log
+    // noise past the boundary floor. Only arm when the query names
+    // something the brain stores (type hint or slug family). Bare
+    // "what changed this week" is intentionally unarmed too: with no
+    // referent the window is everything-recent, which is noise.
+    if (!typeHint && !slugFamily) return null;
     const token = rel[1]!.toLowerCase().replace(/\s+/g, ' ');
     const days =
       token === 'today' || token === 'yesterday'

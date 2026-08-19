@@ -98,8 +98,16 @@ describe('parseTemporalQuery — superlative', () => {
 });
 
 describe('parseTemporalQuery — relative_window', () => {
-  test('"what changed in the brain this week" → 7-day window', () => {
+  test('"what changed in the brain this week" → no referent, returns null (WS5 guard)', () => {
+    // No type hint and no slug family — bare "this week" would arm the
+    // window against everything-recent noise. WS5 gates the arm on an
+    // in-brain referent.
     const r = parseTemporalQuery('what changed in the brain this week', PACK, NOW);
+    expect(r).toBeNull();
+  });
+
+  test('"what changed in brain ops this week" → slug-family referent, 7-day window', () => {
+    const r = parseTemporalQuery('what changed in brain ops daily report this week', PACK, NOW);
     expect(r?.kind).toBe('relative_window');
     expect(r?.days).toBe(7);
   });
@@ -123,7 +131,7 @@ describe('parseTemporalQuery — no-op contract', () => {
 
   test('boundary query returns null (floor handles these)', () => {
     expect(parseTemporalQuery('what is the weather in new york today', PACK, NOW)?.kind)
-      .toBe('relative_window'); // "today" is temporal — but the floor still gates the outcome
+      .toBe(undefined); // WS5: no referent → arm doesn't fire at all
     expect(parseTemporalQuery('who is the CEO of OpenAI', PACK, NOW)).toBeNull();
   });
 
