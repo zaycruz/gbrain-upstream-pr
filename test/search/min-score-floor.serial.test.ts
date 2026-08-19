@@ -216,3 +216,18 @@ describe('min_score — composition + meta', () => {
     expect(seen).toBeUndefined();
   });
 });
+
+describe('min_score — recall-arm rows are exempt (raava/prod WS5)', () => {
+  // Regression: prod "newest decision" queries lost the temporal arm's
+  // page-level candidates because they fuse at neutral RRF weight, land
+  // below the reranker's scored head (no rerank_score), and the floor
+  // dropped every un-scored row — leaving only word-overlap noise. Arm
+  // rows are deterministic answers to a parsed query shape (like
+  // alias-hop exact matches) and must survive the floor.
+  //
+  // The temporal arm needs a schema pack declaring `decision` to fire;
+  // PGLite has no pack row, so the arm can't light up end-to-end here.
+  // The load-bearing predicate is `isRecallArmRow`; see
+  // test/search/recall-arm-exemption.test.ts for the unit-level pins
+  // covering both the autocut preserve predicate and the floor filter.
+});

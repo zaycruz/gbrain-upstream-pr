@@ -76,6 +76,24 @@ const COMPILED_TRUTH_BOOST = 2.0;
 export function shouldBoostCompiledTruth(detail: string | null | undefined): boolean {
   return detail === 'low';
 }
+
+/**
+ * raava/prod WS5 — is this row a deterministic recall-arm candidate?
+ * Temporal / nav / relational arms inject page-level rows (marked with
+ * `temporal_kind` / `nav_kind` / `relational_via_link_types`) at neutral
+ * RRF weight. They land below the reranker's scored head, so they carry
+ * no `rerank_score` — autocut and the `search.min_score` floor must not
+ * treat them as un-scored noise, or the arm's answer gets deleted while
+ * word-overlap chunks survive. Mirrors the `alias_hit === true`
+ * exemption (same structural-injection class).
+ */
+export function isRecallArmRow(r: SearchResult): boolean {
+  return (
+    r.temporal_kind !== undefined ||
+    r.nav_kind !== undefined ||
+    (r.relational_via_link_types !== undefined && r.relational_via_link_types.length > 0)
+  );
+}
 const pendingCacheWrites = new Set<Promise<unknown>>();
 
 /**
@@ -422,6 +440,51 @@ export function promoteTitleMatches(
 
   if (titleMatches.length === 0 || nonTitleMatches.length === 0) return results;
   return [...titleMatches, ...nonTitleMatches];
+}
+
+/**
+ * raava/prod WS5 — recall-arm answer promotion. When a recall arm fired
+ * and produced a deterministic answer set, its rows carry the arm
+ * marker (`temporal_kind` / `nav_kind` / `relational_via_link_types`)
+ * but fuse at neutral RRF weight — organic keyword/vector chunks with
+ * strong word overlap outrank them, so the arm's answer (e.g. the
+ * NEWEST decision page for a superlative query) lands mid-list instead
+ * of leading. That is exactly the shape where the arm's SQL ordering
+ * (effective_date DESC) is the authoritative relevance signal and the
+ * blended score is not.
+ *
+ * Same contract as `promoteTitleMatches`: stable group-partition,
+ * concat. Only rows that carry an arm marker promote; organic rows
+ * (even same-page chunks) keep their fused position. Runs after rerank
+ * so a genuinely strong organic hit still wins rank 1 when no arm
+ * fired.
+ *
+ * Within the arm group the ORDER IS THE ARM'S OWN ORDER: the temporal
+ * arm returns rows sorted by effective_date DESC (authoritative for
+ * superlative/window shapes), nav returns pack/canonical order, and
+ * the relational arm returns hop order. `rrfFusionWeighted` stamps
+ * each arm row's `score` with its RRF points, which correlate with
+ * arm-list position (rank 1 → most points). We re-sort the arm group
+ * by that RRF score descending so the arm's top answer leads, not the
+ * blended post-fusion score that organic boosts (backlink, recency)
+ * inflated.
+ */
+export function promoteRecallArmAnswers(results: SearchResult[]): SearchResult[] {
+  if (results.length < 2) return results;
+  const arm: SearchResult[] = [];
+  const organic: SearchResult[] = [];
+  for (const r of results) {
+    if (isRecallArmRow(r)) arm.push(r);
+    else organic.push(r);
+  }
+  if (arm.length === 0 || organic.length === 0) return results;
+  // Arm rows carry chunk_id 0 (page-level) and were fused from a single
+  // arm list, so their RRF `score` ranks them by arm position. Organic
+  // post-fusion boosts (backlink/recency) inflated SOME arm rows past
+  // the arm's own head — re-sorting by RRF score restores the arm's
+  // authoritative ordering (newest first for superlative temporal).
+  arm.sort((a, b) => (b.base_score ?? b.score) - (a.base_score ?? a.score));
+  return [...arm, ...organic];
 }
 
 /**
@@ -1819,10 +1882,16 @@ export async function hybridSearch(
   // The reranker's relative ordering is preserved within each group.
   const titlePromoted = promoteTitleMatches(reranked, query);
 
+  // raava/prod WS5 — recall-arm answer promotion. Deterministic arm
+  // answers (temporal superlative/window, nav enumerate/canonical,
+  // relational walk) lead the result set; organic rows keep their fused
+  // order below. Stable within each group.
+  const armPromoted = promoteRecallArmAnswers(titlePromoted);
+
   // T3 — free-text alias hop. Runs AFTER rerank so a query that is a page's
   // declared chosen name reliably surfaces that page regardless of how the
   // reranker scored body chunks. Fail-open on pre-v110 brains.
-  const aliasHopped = await applyAliasHop(engine, titlePromoted, query, {
+  const aliasHopped = await applyAliasHop(engine, armPromoted, query, {
     sourceId: opts?.sourceId,
     sourceIds: opts?.sourceIds,
   });
@@ -1871,7 +1940,12 @@ export async function hybridSearch(
       // Preserve alias-hop exact matches: applyAliasHop injects the canonical
       // page AFTER reranking, so it has no rerank_score. Without this it would
       // be dropped whenever autocut cuts on the scored set (Codex P1).
-      (x) => x.alias_hit === true,
+      // raava/prod WS5: same exemption for recall-arm rows (temporal/nav/
+      // relational). They fuse at neutral RRF weight and land below the
+      // reranker's scored head, so they carry no rerank_score — an
+      // autocut on the scored prefix would silently delete the arm's
+      // answer (e.g. "newest decision" losing the newest decision page).
+      (x) => x.alias_hit === true || isRecallArmRow(x),
     );
     returnPool = r.kept;
     autocutDecision = r.decision;
@@ -1893,6 +1967,11 @@ export async function hybridSearch(
   // path and conservative mode keep prior behavior bit-for-bit — no
   // trustworthy absolute signal exists there). Alias-hop exact-title hits
   // are exempt: an explicit name lookup must survive the floor.
+  // Recall-arm rows (temporal/nav/relational) are exempt for the same
+  // reason: they are deterministic answers to a parsed query shape, fused
+  // at neutral RRF weight, and land below the reranker's scored head —
+  // the floor would otherwise delete the arm's answer while keeping
+  // word-overlap chunks the reranker happened to score above threshold.
   // When the reranker scored a partial head (topNIn < pool size), the
   // un-scored tail is NOT exempt: it carries no cross-encoder signal and
   // is precisely the noise the floor exists to remove.
@@ -1907,6 +1986,7 @@ export async function hybridSearch(
       returnPool = returnPool.filter(
         (x) =>
           x.alias_hit === true ||
+          isRecallArmRow(x) ||
           (typeof x.rerank_score === 'number' && Number.isFinite(x.rerank_score) && x.rerank_score >= minScore),
       );
       minScoreDecision = { threshold: minScore, dropped: before - returnPool.length, kept: returnPool.length };
