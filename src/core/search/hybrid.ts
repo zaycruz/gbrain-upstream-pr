@@ -315,6 +315,11 @@ export function applySalienceBoost(
   for (const r of results) {
     if (!Number.isFinite(r.score)) continue;
     if (floorThreshold !== undefined && r.score < floorThreshold) continue;
+    // raava/prod WS5 — recall-arm rows already carry the temporal signal
+    // (their ordering IS the date ranking); stacking a recency boost on
+    // top double-counts recency and lets freshly-updated organic pages
+    // (today's inbox/run-log) outrank the arm's date-ordered answer.
+    if (isRecallArmRow(r)) continue;
     const key = `${r.source_id ?? 'default'}::${r.slug}`;
     const score = scores.get(key);
     if (!score || score <= 0) continue;

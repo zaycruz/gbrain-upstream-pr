@@ -259,13 +259,19 @@ export async function buildTemporalArm(
         ? `CASE WHEN p.slug LIKE '%' || $${params.length + 1} || '%' THEN 0 ELSE 1 END,`
         : '';
       if (parsed.slugFamily) params.push(parsed.slugFamily.replace(/\s+/g, '-'));
-      // "What changed" is asking for the brain's CHANGE SURFACE — the
-      // curated dated content (brain-ops/ daily reports, decisions/,
-      // journal/) — not the raw write volume (inbox drops + per-minute
-      // run-logs swamp it). Rank pages in dated/curated namespaces
-      // first; the raw volume stays as tail context.
-      const CHANGE_SURFACE =
-        "(p.slug LIKE 'brain-ops/%' OR p.slug LIKE 'decisions/%' OR p.slug LIKE 'meetings/%' OR p.slug LIKE 'journal/%' OR p.slug LIKE 'agents/journal/%')";
+      // "What changed this week" is asking for the window's ROLLUP — the
+      // daily-report / brain-health pages that summarize the period —
+      // not the raw write volume. Inbox drops and per-minute run-logs
+      // swamp the window on updated_at (a bulk re-ingest made every page
+      // "recent"), and individual old decisions/meetings re-ingested in
+      // the window are not "what changed". Lead with the dated rollups;
+      // dated content (ISO date in slug) next; everything else is tail.
+      const ROLLUP = "(p.slug LIKE '%daily-report%' OR p.slug LIKE '%brain-health%')";
+      // Dated content: ISO date as a real date segment — covers
+      // daily-report-2026-08-03 and decisions/2026-07-19-* but NOT the
+      // compact inbox/run-log form (2026-08-19-19c493bc), which is a
+      // write receipt, not a curated change entry.
+      const DATED = "p.slug ~ '\\d{4}-\\d{2}-\\d{2}($|[^0-9a-f])'";
       const rows = await engine.executeRaw<PageRow>(
         `SELECT ${PAGE_COLS}
          FROM pages p
@@ -274,7 +280,7 @@ export async function buildTemporalArm(
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
            ${TEMPLATE_EXCLUDE}
-         ORDER BY ${familyRank} CASE WHEN ${CHANGE_SURFACE} THEN 0 ELSE 1 END, p.effective_date DESC NULLS LAST, p.updated_at DESC
+         ORDER BY ${familyRank} CASE WHEN ${ROLLUP} THEN 0 WHEN ${DATED} THEN 1 ELSE 2 END, p.effective_date DESC NULLS LAST, p.updated_at DESC
          LIMIT ${limit}`,
         params,
       );
