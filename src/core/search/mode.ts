@@ -852,7 +852,12 @@ export function attributeKnob<K extends keyof ModeBundle>(
 // ONE-TIME cold-miss on upgrade as v=15 rows become unreachable. (16 was
 // a fork-internal stepping stone; nothing persisted at 16 in any deployed
 // environment.)
-export const KNOBS_HASH_VERSION = 18;
+// raava/prod bump 18→19: arm source-scope fix (scope-sources.ts). Unscoped
+// temporal/nav/relational arms previously filtered to source 'default'
+// only; they now enumerate live sources. Cache rows written under v18
+// could be missing arm candidates from non-default sources, so they must
+// not be served after the fix. One-time cold-miss; refills within TTL.
+export const KNOBS_HASH_VERSION = 19;
 
 /**
  * v0.36 (D8 / CDX-2) — second-arg context for the cache key. The

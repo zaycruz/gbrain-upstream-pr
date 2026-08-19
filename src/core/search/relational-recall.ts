@@ -34,6 +34,7 @@ import {
   type RelationalQuery,
   type RelationVocab,
 } from './relational-intent.ts';
+import { resolveArmSources } from './scope-sources.ts';
 
 export interface RelationalArmOpts {
   sourceId?: string;
@@ -72,15 +73,6 @@ export function readRecentRelationalFailures(days = 7, now: Date = new Date()): 
 
 function truncate(msg: string, max = 200): string {
   return msg.length <= max ? msg : msg.slice(0, max - 1) + '…';
-}
-
-/** Sources to resolve a seed against. Federated → the set; scalar → [id];
- *  unscoped/__all__ → ['default'] (single-source brains; multi-source
- *  enumeration under __all__ is a v1 limitation). */
-function scopeSources(opts: RelationalArmOpts): string[] {
-  if (opts.sourceIds && opts.sourceIds.length > 0) return opts.sourceIds;
-  if (opts.sourceId && opts.sourceId !== '__all__') return [opts.sourceId];
-  return ['default'];
 }
 
 /** Resolve a seed phrase to all in-scope (source_id, slug) pairs that
@@ -176,7 +168,7 @@ export async function buildRelationalArm(
   meta.kind = parsed.kind;
 
   try {
-    const sources = scopeSources(opts);
+    const sources = await resolveArmSources(engine, opts);
     const fanoutOpts = {
       linkTypes: parsed.linkTypes,
       // Type-agnostic walks (connects/intro) must not traverse

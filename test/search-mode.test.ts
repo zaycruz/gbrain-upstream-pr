@@ -433,7 +433,7 @@ describe('knobsHash determinism + cross-mode separation (CDX-4)', () => {
     // not survive a `reindex-search-vector` switch.
     // raava/prod bumped 15→16 to fold min_score (ms=) — a floored (possibly
     // empty) result set must not be served to an unfloored lookup.
-    expect(KNOBS_HASH_VERSION).toBe(18);
+    expect(KNOBS_HASH_VERSION).toBe(19);
   });
 
   test('T1 (codex): floor_ratio set vs unset produces DIFFERENT hashes (cache contamination prevention)', () => {
@@ -599,7 +599,7 @@ describe('v0.40.4 — graph_signals knob', () => {
 
 describe('v0.42.3.0 — autocut knobs', () => {
   test('KNOBS_HASH_VERSION is 17 (16→17 raava/prod nav_routing fold)', () => {
-    expect(KNOBS_HASH_VERSION).toBe(18);
+    expect(KNOBS_HASH_VERSION).toBe(19);
   });
 
   test('bundle defaults: conservative off, balanced/tokenmax on @0.20', () => {

@@ -29,6 +29,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { SearchResult, PageType } from '../types.ts';
 import { parseTemporalQuery, type TemporalQuery } from './temporal-intent.ts';
+import { resolveArmSources } from './scope-sources.ts';
 
 export interface TemporalArmOpts {
   sourceId?: string;
@@ -48,12 +49,6 @@ export interface TemporalArmMeta {
   candidates: number;
   errored: boolean;
   duration_ms: number;
-}
-
-function scopeSources(opts: TemporalArmOpts): string[] {
-  if (opts.sourceIds && opts.sourceIds.length > 0) return opts.sourceIds;
-  if (opts.sourceId && opts.sourceId !== '__all__') return [opts.sourceId];
-  return ['default'];
 }
 
 interface PageRow {
@@ -85,6 +80,13 @@ function toResults(rows: PageRow[], kind: TemporalQuery['kind']): SearchResult[]
 const PAGE_COLS =
   `p.id, p.slug, p.title, p.type, LEFT(p.compiled_truth, 240) AS compiled_truth, p.source_id`;
 
+// Namespaces that carry TYPE-CONFORMING rows but are not content answers:
+// `_templates/` pages are structural scaffolding (a `decision` template is a
+// decision-typed page that is never "the newest decision"). Excluded from every
+// temporal shape so the arm's top rank is real content, not scaffolding.
+// `.archive/` exclusion stays per-query.
+const TEMPLATE_EXCLUDE = `AND p.slug NOT LIKE '%/_templates/%'`;
+
 /**
  * Build the temporal recall arm. Returns an empty list (pure no-op) when
  * the query isn't temporal or nothing resolves. Never throws.
@@ -110,7 +112,7 @@ export async function buildTemporalArm(
   meta.kind = parsed.kind;
 
   try {
-    const sources = scopeSources(opts);
+    const sources = await resolveArmSources(engine, opts);
     const limit = Math.min(Math.max(1, opts.limit ?? 20), 50);
 
     if (parsed.kind === 'exact_date' && parsed.since && parsed.until) {
@@ -127,6 +129,7 @@ export async function buildTemporalArm(
              AND p.source_id = ANY($2::text[])
              AND p.deleted_at IS NULL
              AND p.slug NOT LIKE '.archive/%'
+             ${TEMPLATE_EXCLUDE}
            ORDER BY p.slug ASC
            LIMIT $3`,
           [`%${stem}-${day}%`, sources, limit],
@@ -145,6 +148,7 @@ export async function buildTemporalArm(
            AND p.source_id = ANY($3::text[])
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
+           ${TEMPLATE_EXCLUDE}
          ORDER BY p.effective_date DESC, p.updated_at DESC
          LIMIT $4`,
         [parsed.since, parsed.until, sources, limit],
@@ -173,6 +177,7 @@ export async function buildTemporalArm(
            AND p.source_id = ANY($3::text[])
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
+           ${TEMPLATE_EXCLUDE}
            ${typeClause}
          ORDER BY p.effective_date DESC NULLS LAST, p.updated_at DESC
          LIMIT $${params.length}`,
@@ -193,6 +198,7 @@ export async function buildTemporalArm(
          WHERE p.source_id = ANY($1::text[])
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
+           ${TEMPLATE_EXCLUDE}
            ${typeClause}
          ORDER BY p.effective_date DESC NULLS LAST, p.updated_at DESC
          LIMIT $${params.length}`,
@@ -212,6 +218,7 @@ export async function buildTemporalArm(
            AND p.source_id = ANY($2::text[])
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
+           ${TEMPLATE_EXCLUDE}
          ORDER BY GREATEST(p.updated_at, COALESCE(p.effective_date, p.updated_at)) DESC
          LIMIT $3`,
         [since, sources, limit],

@@ -48,10 +48,30 @@ export async function loadActivePackBestEffort(
   ctx: OperationContext,
 ): Promise<ResolvedPack | null> {
   try {
+    // Read the DB-plane pack keys (tier 3 per-source + tier 4 brain-wide) so
+    // a `gbrain config set schema_pack …` change actually steers search-time
+    // pack resolution. Pre-fix this helper only threaded sourceId through, so
+    // the DB config keys were silently ignored on the search hot path and the
+    // pack fell through to the file-plane default. Mirrors the onboard check
+    // resolver (src/core/onboard/checks.ts resolveOnboardActivePack).
+    let dbConfig: string | undefined;
+    let perSourceDb: Map<string, string> | undefined;
+    try {
+      const dbPack = await ctx.engine.getConfig('schema_pack');
+      dbConfig = typeof dbPack === 'string' ? dbPack : undefined;
+    } catch { /* best-effort */ }
+    if (ctx.sourceId) {
+      try {
+        const sp = await ctx.engine.getConfig(`schema_pack.source.${ctx.sourceId}`);
+        if (typeof sp === 'string') perSourceDb = new Map([[ctx.sourceId, sp]]);
+      } catch { /* best-effort */ }
+    }
     return await loadActivePack({
       cfg: loadConfig(),
       remote: ctx.remote ?? true,
       sourceId: ctx.sourceId,
+      dbConfig,
+      perSourceDb,
     });
   } catch {
     return null;

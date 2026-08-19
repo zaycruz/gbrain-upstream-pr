@@ -1736,6 +1736,17 @@ export interface HybridSearchMeta {
    * non-hybridSearch capture paths (keyword-only `search` op).
    */
   embedding_column?: string;
+  /**
+   * raava/prod WS5d — per-arm fire diagnostics. Omitted when the arm is
+   * disabled by mode/config. Lets `gbrain search --explain` and eval
+   * capture show whether the SQL recall arms actually contributed
+   * candidates (and which temporal/nav kind fired) without a DB query.
+   */
+  arm_meta?: {
+    temporal?: { fired: boolean; kind: string | null; candidates: number; errored: boolean };
+    nav?: { fired: boolean; kind: string | null; candidates: number; errored: boolean };
+    relational?: { fired: boolean; kind: string | null; candidates: number; errored: boolean };
+  };
 }
 
 // Config

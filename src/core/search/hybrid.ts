@@ -1099,6 +1099,13 @@ export async function hybridSearch(
   // lastResultsCount at each return path; undefined when there are no results.
   let lastRank1Score: number | undefined;
   const emitMeta = (meta: HybridSearchMeta): void => {
+    // WS5d — fold per-arm fire diagnostics into every emitted meta so
+    // eval capture + `search --explain` can see arm behavior per query.
+    const armMeta: NonNullable<HybridSearchMeta['arm_meta']> = {};
+    if (temporalArmMeta) armMeta.temporal = { fired: temporalArmMeta.fired, kind: temporalArmMeta.kind, candidates: temporalArmMeta.candidates, errored: temporalArmMeta.errored };
+    if (navArmMeta) armMeta.nav = { fired: navArmMeta.fired, kind: navArmMeta.kind, candidates: navArmMeta.candidates, errored: navArmMeta.errored };
+    if (relationalArmMeta) armMeta.relational = { fired: relationalArmMeta.fired, kind: relationalArmMeta.kind, candidates: relationalArmMeta.candidates, errored: relationalArmMeta.errored };
+    if (Object.keys(armMeta).length > 0) meta.arm_meta = armMeta;
     try {
       opts?.onMeta?.(meta);
     } catch {
@@ -1219,13 +1226,14 @@ export async function hybridSearch(
   // non-relational queries → pure no-op. (Modality gate lives on the main
   // path; the parser only matches text-shaped relational queries anyway.)
   let relationalList: SearchResult[] = [];
+  let relationalArmMeta: import('./relational-recall.ts').RelationalArmMeta | undefined;
   if (resolvedMode.relationalRetrieval) {
     relationalList = await buildRelationalArm(engine, query, {
       sourceId: opts?.sourceId,
       sourceIds: opts?.sourceIds,
       depth: resolvedMode.relational_retrieval_depth,
       limit: opts?.limit ?? resolvedMode.searchLimit,
-      onMeta: opts?.onRelationalMeta,
+      onMeta: (m) => { relationalArmMeta = m; opts?.onRelationalMeta?.(m); },
     });
   }
 
@@ -1238,12 +1246,14 @@ export async function hybridSearch(
   // fires) rather than an error. Empty for non-nav queries → pure no-op.
   let navList: SearchResult[] = [];
   let navPackTypes: ReadonlySet<string> = new Set();
+  let navArmMeta: import('./nav-recall.ts').NavArmMeta | undefined;
   if (resolvedMode.nav_routing) {
     let packTypes: ReadonlySet<string> = new Set();
     let navCanonical: import('./nav-recall.ts').NavCanonicalConfig | undefined;
     try {
       const { loadActivePackBestEffort } = await import('../schema-pack/best-effort.ts');
       const pack = await loadActivePackBestEffort({
+        engine,
         remote: true, // search is an agent-facing surface; per-call pack opt is not honored here
         sourceId: opts?.sourceId,
       } as import('../operations.ts').OperationContext);
@@ -1268,7 +1278,7 @@ export async function hybridSearch(
       packTypes,
       navCanonical,
       limit: opts?.limit ?? resolvedMode.searchLimit,
-      onMeta: opts?.onNavMeta,
+      onMeta: (m) => { navArmMeta = m; opts?.onNavMeta?.(m); },
     });
   }
 
@@ -1278,12 +1288,14 @@ export async function hybridSearch(
   // when both are on; loads independently when temporal_arm is on but
   // nav_routing is off. Empty for non-temporal queries → pure no-op.
   let temporalList: SearchResult[] = [];
+  let temporalArmMeta: import('./temporal-recall.ts').TemporalArmMeta | undefined;
   if (resolvedMode.temporal_arm) {
     let packTypes = navPackTypes;
     if (packTypes.size === 0 && !resolvedMode.nav_routing) {
       try {
         const { loadActivePackBestEffort } = await import('../schema-pack/best-effort.ts');
         const pack = await loadActivePackBestEffort({
+          engine,
           remote: true,
           sourceId: opts?.sourceId,
         } as import('../operations.ts').OperationContext);
@@ -1302,7 +1314,7 @@ export async function hybridSearch(
       sourceIds: opts?.sourceIds,
       packTypes,
       limit: opts?.limit ?? resolvedMode.searchLimit,
-      onMeta: opts?.onTemporalMeta,
+      onMeta: (m) => { temporalArmMeta = m; opts?.onTemporalMeta?.(m); },
     });
   }
 

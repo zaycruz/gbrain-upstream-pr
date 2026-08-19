@@ -73,6 +73,15 @@ const TEMPORAL_PATTERNS = [
   /\bhow\s+long\s+(ago|since)\b/i,
   /\b\d{4}[-/]\d{2}\b/i,
   /\blast\s+(week|month|quarter|year)\b/i,
+  // WS5a — date superlatives route to temporal, not entity. "what is the
+  // newest decision" previously matched ENTITY_PATTERNS /\bwhat\s+is\b/ first
+  // (classifyQueryIntent checks TEMPORAL before ENTITY, so a superlative entry
+  // here wins). Without this the query got entity weighting + recency='off'
+  // heuristic and the temporal arm's newest-first answer lost to word overlap.
+  /\bnewest\b/i,
+  /\bmost\s+recent\b/i,
+  /\boldest\b/i,
+  /\bcurrent(ly)?\b/i,
 ];
 
 const EVENT_PATTERNS = [

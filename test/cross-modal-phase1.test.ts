@@ -151,7 +151,7 @@ describe('D2 — knobsHash differs across cross-modal knob values', () => {
     // plus `reindex-search-vector` must not keep serving pre-switch rows.
     // raava/prod: 15→16 min_score (ms=) — floored sets must not leak to
     // unfloored lookups.
-    expect(KNOBS_HASH_VERSION).toBe(18);
+    expect(KNOBS_HASH_VERSION).toBe(19);
   });
 
   test('flipping unified_multimodal changes the hash', () => {

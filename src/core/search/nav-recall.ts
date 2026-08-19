@@ -25,6 +25,7 @@
 import type { BrainEngine } from '../engine.ts';
 import type { SearchResult, PageType } from '../types.ts';
 import { parseNavQuery, type NavQuery } from './nav-intent.ts';
+import { resolveArmSources } from './scope-sources.ts';
 
 export interface NavArmOpts {
   sourceId?: string;
@@ -121,12 +122,6 @@ function resolveCanonicalConfig(
   return { priority, topicMap: [...packTopics, ...CANONICAL_TOPIC_MAP] };
 }
 
-function scopeSources(opts: NavArmOpts): string[] {
-  if (opts.sourceIds && opts.sourceIds.length > 0) return opts.sourceIds;
-  if (opts.sourceId && opts.sourceId !== '__all__') return [opts.sourceId];
-  return ['default'];
-}
-
 async function pagesToResults(
   engine: BrainEngine,
   pages: Array<{ id: number; slug: string; title: string; type: string; compiled_truth: string; source_id?: string }>,
@@ -171,7 +166,7 @@ export async function buildNavArm(
   meta.kind = parsed.kind;
 
   try {
-    const sources = scopeSources(opts);
+    const sources = await resolveArmSources(engine, opts);
     const limit = Math.min(Math.max(1, opts.limit ?? 20), 50);
 
     if (parsed.kind === 'enumerate' && parsed.pageType) {
@@ -187,6 +182,7 @@ export async function buildNavArm(
            AND p.source_id = ANY($2::text[])
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
+          AND p.slug NOT LIKE '%/_templates/%'
          ORDER BY p.updated_at DESC
          LIMIT $3`,
         [parsed.pageType, sources, limit],

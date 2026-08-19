@@ -99,6 +99,30 @@ describe('classifyQuery — recency-only patterns (no salience signal)', () => {
     expect(r.suggestedSalience).toBe('off');
   });
 
+  // WS5a — date superlatives classify temporal (not entity). Without the
+  // TEMPORAL_PATTERNS entries, "what is the newest decision" matched
+  // ENTITY_PATTERNS /\bwhat\s+is\b/ and got entity weighting + recency='off',
+  // which defeated the temporal arm's newest-first ordering.
+  test('"what is the newest decision" → temporal intent', () => {
+    const r = classifyQuery('what is the newest decision in the brain');
+    expect(r.intent).toBe('temporal');
+  });
+
+  test('"most recent report" → temporal intent', () => {
+    const r = classifyQuery('most recent report');
+    expect(r.intent).toBe('temporal');
+  });
+
+  test('"current image sha" → temporal intent', () => {
+    const r = classifyQuery('current image sha');
+    expect(r.intent).toBe('temporal');
+  });
+
+  test('"oldest decision" → temporal intent', () => {
+    const r = classifyQuery('oldest decision');
+    expect(r.intent).toBe('temporal');
+  });
+
   test('"this week\'s updates" → recency=on, salience=off', () => {
     const r = classifyQuery("this week's updates");
     expect(r.suggestedRecency).toBe('on');

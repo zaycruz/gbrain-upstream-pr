@@ -50,6 +50,35 @@ beforeAll(async () => {
   await eng.executeRaw(`UPDATE pages SET deleted_at = now() WHERE slug = $1`, [
     'brain-ops/daily-report-2026-08-04-deleted',
   ]);
+  // Multi-source brain: the content lives in a non-default source. Unscoped
+  // (trusted local) callers must still see it — this is the raava/prod
+  // regression where scopeSources() hardcoded ['default'] and the arm
+  // silently missed everything.
+  await eng.executeRaw(
+    `INSERT INTO sources (id, name) VALUES ('raava-brain', 'raava-brain') ON CONFLICT DO NOTHING`,
+  );
+  await eng.putPage('decisions/nondefault-newest-decision', {
+    type: 'decision',
+    title: 'Newest decision in non-default source',
+    compiled_truth: 'multi-source scope regression fixture',
+    timeline: '',
+  }, { sourceId: 'raava-brain' });
+  await eng.executeRaw(
+    `UPDATE pages SET effective_date = $1 WHERE slug = $2`,
+    ['2026-08-15T00:00:00Z', 'decisions/nondefault-newest-decision'],
+  );
+  // Template scaffolding: a decision-typed page under _templates/ must never
+  // lead a superlative/enumeration (it is never "the newest decision").
+  await eng.putPage('concepts/_templates/decision-record', {
+    type: 'decision',
+    title: 'Decision record template',
+    compiled_truth: 'template scaffolding, not a real decision',
+    timeline: '',
+  });
+  await eng.executeRaw(
+    `UPDATE pages SET effective_date = $1 WHERE slug = $2`,
+    ['2026-08-20T00:00:00Z', 'concepts/_templates/decision-record'],
+  );
 }, 60_000);
 
 afterAll(async () => {
@@ -111,11 +140,39 @@ describe('buildTemporalArm — month_window', () => {
 describe('buildTemporalArm — superlative', () => {
   test('"newest decision" returns the most recent decision first', async () => {
     const rows = await buildTemporalArm(eng, 'what is the newest decision in the brain', {
-      packTypes: PACK, now: NOW,
+      packTypes: PACK, now: NOW, sourceId: 'default',
     });
     expect(rows.length).toBeGreaterThan(0);
     expect(rows[0].slug).toBe('decisions/adr-brain-ci-cd-policy-gates-2026-08-11');
     expect(rows.every((r) => r.type === 'decision')).toBe(true);
+  });
+
+  test('unscoped (trusted local) spans non-default sources', async () => {
+    // The 'raava-brain' fixture (effective 2026-08-15) outranks the default-
+    // source newest decision (2026-08-11) when unscoped enumeration is on.
+    const rows = await buildTemporalArm(eng, 'what is the newest decision in the brain', {
+      packTypes: PACK, now: NOW,
+    });
+    expect(rows[0].slug).toBe('decisions/nondefault-newest-decision');
+    expect(rows[0].source_id).toBe('raava-brain');
+  });
+
+  test('explicit scalar sourceId stays scoped to that source', async () => {
+    const rows = await buildTemporalArm(eng, 'what is the newest decision in the brain', {
+      packTypes: PACK, now: NOW, sourceId: 'default',
+    });
+    expect(rows[0].slug).toBe('decisions/adr-brain-ci-cd-policy-gates-2026-08-11');
+    expect(rows.every((r) => r.source_id === 'default')).toBe(true);
+  });
+
+  test('_templates/ pages never lead a superlative', async () => {
+    // The template fixture is dated NEWER (2026-08-20) than any real decision;
+    // it must be excluded so it can't outrank real content.
+    const rows = await buildTemporalArm(eng, 'what is the newest decision in the brain', {
+      packTypes: PACK, now: NOW,
+    });
+    expect(rows.map((r) => r.slug)).not.toContain('concepts/_templates/decision-record');
+    expect(rows[0].slug).toBe('decisions/nondefault-newest-decision');
   });
 });
 

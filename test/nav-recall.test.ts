@@ -34,6 +34,19 @@ beforeAll(async () => {
     await eng.putPage(slug, { type: type as 'note', title, compiled_truth: `${title} body text`, timeline: '' });
   }
   await eng.executeRaw(`UPDATE pages SET deleted_at = now() WHERE slug = $1`, ['decisions/deleted-decision']);
+  // Multi-source fixture: unscoped enumerate must span live sources.
+  await eng.executeRaw(
+    `INSERT INTO sources (id, name) VALUES ('raava-brain', 'raava-brain') ON CONFLICT DO NOTHING`,
+  );
+  await eng.putPage('decisions/nondefault-decision', {
+    type: 'decision', title: 'Decision in non-default source',
+    compiled_truth: 'multi-source scope regression fixture', timeline: '',
+  }, { sourceId: 'raava-brain' });
+  // Template scaffolding: must never enumerate as a decision.
+  await eng.putPage('concepts/_templates/decision-record', {
+    type: 'decision', title: 'Decision record template',
+    compiled_truth: 'template scaffolding, not a real decision', timeline: '',
+  });
 }, 60_000);
 
 afterAll(async () => {
@@ -42,7 +55,7 @@ afterAll(async () => {
 
 describe('buildNavArm — enumerate', () => {
   test('"all decisions" enumerates decision pages only, newest first', async () => {
-    const rows = await buildNavArm(eng, 'all decisions', { packTypes: PACK });
+    const rows = await buildNavArm(eng, 'all decisions', { packTypes: PACK, sourceId: 'default' });
     expect(rows.length).toBe(2);
     expect(rows.every((r) => r.type === 'decision')).toBe(true);
     expect(rows.every((r) => r.nav_kind === 'enumerate')).toBe(true);
@@ -50,13 +63,25 @@ describe('buildNavArm — enumerate', () => {
   });
 
   test('.archive/ and soft-deleted pages never enumerate', async () => {
-    const rows = await buildNavArm(eng, 'all decisions', { packTypes: PACK });
+    const rows = await buildNavArm(eng, 'all decisions', { packTypes: PACK, sourceId: 'default' });
     expect(rows.map((r) => r.slug)).not.toContain('.archive/decisions/old-decision');
     expect(rows.map((r) => r.slug)).not.toContain('decisions/deleted-decision');
   });
 
   test('undeclared type → no-op', async () => {
     expect(await buildNavArm(eng, 'all spreadsheets', { packTypes: PACK })).toEqual([]);
+  });
+
+  test('unscoped (trusted local) enumerate spans non-default sources', async () => {
+    const rows = await buildNavArm(eng, 'all decisions', { packTypes: PACK });
+    const slugs = rows.map((r) => r.slug);
+    expect(slugs).toContain('decisions/nondefault-decision');
+    expect(slugs).toContain('decisions/2026-07-19-gbrain-stays-on-gcp');
+  });
+
+  test('_templates/ pages never enumerate', async () => {
+    const rows = await buildNavArm(eng, 'all decisions', { packTypes: PACK });
+    expect(rows.map((r) => r.slug)).not.toContain('concepts/_templates/decision-record');
   });
 });
 
@@ -95,6 +120,6 @@ describe('buildNavArm — contract', () => {
     expect(seen).toBeDefined();
     expect(seen!.kind).toBe('enumerate');
     expect(seen!.fired).toBe(true);
-    expect(seen!.candidates).toBe(2);
+    expect(seen!.candidates).toBe(3); // 2 default + 1 non-default fixture
   });
 });
