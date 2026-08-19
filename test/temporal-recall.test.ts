@@ -177,14 +177,19 @@ describe('buildTemporalArm — superlative', () => {
 });
 
 describe('buildTemporalArm — relative_window', () => {
-  test('"this week" with no referent is a no-op (WS5 out-of-scope guard)', async () => {
+  test('"this week" with no referent and no brain mention is a no-op (WS5 guard)', async () => {
+    const rows = await buildTemporalArm(eng, 'what happened this week', {
+      packTypes: PACK, now: NOW,
+    });
+    expect(rows).toEqual([]);
+  });
+
+  test('"this week" about the brain arms on the change surface', async () => {
     const rows = await buildTemporalArm(eng, 'what changed in the brain this week', {
       packTypes: PACK, now: NOW,
     });
-    // No type hint / slug family → arm refuses to fire (bare window is
-    // everything-recent noise; the boundary floor can't gate it because
-    // the arm rows are exempt).
-    expect(rows).toEqual([]);
+    // Self-referential "the brain" IS a brain-scoped recency query.
+    expect(rows.every((r) => r.temporal_kind === 'relative_window')).toBe(true);
   });
 
   test('"this week" with a slug-family referent catches the dated inbox note', async () => {

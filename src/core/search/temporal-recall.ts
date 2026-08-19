@@ -164,9 +164,16 @@ export async function buildTemporalArm(
       const yyyymm = parsed.since.slice(0, 7);
       const slugRe = `${yyyymm}-\\d{2}([-/]|$)`;
       const params: unknown[] = [parsed.since, parsed.until, sources, slugRe];
-      if (parsed.pageType) params.push(parsed.pageType);
-      params.push(limit);
-      const typeClause = parsed.pageType ? 'AND p.type = $5' : '';
+      // Type-match via column OR slug namespace (same two-channel
+      // contract as superlative): decisions/* pages typed `note` still
+      // belong in "decisions made in july".
+      const typeClause = parsed.pageType
+        ? `AND (p.type = $${params.length + 1} OR p.slug LIKE $${params.length + 2})`
+        : '';
+      if (parsed.pageType) {
+        params.push(parsed.pageType);
+        params.push(`${parsed.pageType}s/%`);
+      }
       const rows = await engine.executeRaw<PageRow>(
         `SELECT ${PAGE_COLS}
          FROM pages p
@@ -180,7 +187,7 @@ export async function buildTemporalArm(
            ${TEMPLATE_EXCLUDE}
            ${typeClause}
          ORDER BY p.effective_date DESC NULLS LAST, p.updated_at DESC
-         LIMIT $${params.length}`,
+         LIMIT ${limit}`,
         params,
       );
       meta.fired = rows.length > 0;
@@ -201,11 +208,20 @@ export async function buildTemporalArm(
       // typed `ops-note` in the raava-base pack — a hard type filter
       // would zero the arm's answer. So when a slug family is present,
       // drop the type clause and let the family rank lead.
+      //
+      // Type-match is two-channel: the declared `p.type` column AND the
+      // slug's namespace directory. Some pages carry the type only in
+      // the slug (e.g. decisions/2026-07-19-gbrain-stays-on-gcp is typed
+      // `note` but is unambiguously a decision by location) — the strict
+      // p.type filter alone would drop them from "newest decision".
       const effectivePageType = parsed.slugFamily ? undefined : parsed.pageType;
       const typeClause = effectivePageType
-        ? `AND p.type = $${params.length + 1}`
+        ? `AND (p.type = $${params.length + 1} OR p.slug LIKE $${params.length + 2})`
         : '';
-      if (effectivePageType) params.push(effectivePageType);
+      if (effectivePageType) {
+        params.push(effectivePageType);
+        params.push(`${effectivePageType}s/%`);
+      }
       const familyRank = parsed.slugFamily
         ? `CASE WHEN p.slug LIKE '%' || $${params.length + 1} || '%' THEN 0 ELSE 1 END,`
         : '';
@@ -243,6 +259,13 @@ export async function buildTemporalArm(
         ? `CASE WHEN p.slug LIKE '%' || $${params.length + 1} || '%' THEN 0 ELSE 1 END,`
         : '';
       if (parsed.slugFamily) params.push(parsed.slugFamily.replace(/\s+/g, '-'));
+      // "What changed" is asking for the brain's CHANGE SURFACE — the
+      // curated dated content (brain-ops/ daily reports, decisions/,
+      // journal/) — not the raw write volume (inbox drops + per-minute
+      // run-logs swamp it). Rank pages in dated/curated namespaces
+      // first; the raw volume stays as tail context.
+      const CHANGE_SURFACE =
+        "(p.slug LIKE 'brain-ops/%' OR p.slug LIKE 'decisions/%' OR p.slug LIKE 'meetings/%' OR p.slug LIKE 'journal/%' OR p.slug LIKE 'agents/journal/%')";
       const rows = await engine.executeRaw<PageRow>(
         `SELECT ${PAGE_COLS}
          FROM pages p
@@ -251,7 +274,7 @@ export async function buildTemporalArm(
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
            ${TEMPLATE_EXCLUDE}
-         ORDER BY ${familyRank} p.effective_date DESC NULLS LAST, p.updated_at DESC
+         ORDER BY ${familyRank} CASE WHEN ${CHANGE_SURFACE} THEN 0 ELSE 1 END, p.effective_date DESC NULLS LAST, p.updated_at DESC
          LIMIT ${limit}`,
         params,
       );

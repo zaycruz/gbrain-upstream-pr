@@ -186,11 +186,13 @@ export function parseTemporalQuery(
     // Same out-of-scope guard as superlative: "weather in new york
     // today" / "what time is it in tokyo" carry a relative token but no
     // in-brain referent — the arm would inject today's inbox/run-log
-    // noise past the boundary floor. Only arm when the query names
-    // something the brain stores (type hint or slug family). Bare
-    // "what changed this week" is intentionally unarmed too: with no
-    // referent the window is everything-recent, which is noise.
-    if (!typeHint && !slugFamily) return null;
+    // noise past the boundary floor. Arm when the query names something
+    // the brain stores (type hint or slug family) OR when the query is
+    // self-referential about the brain itself ("what changed in the
+    // brain this week" IS a brain-scoped recency query — the
+    // relative_window arm's change-surface ordering handles it).
+    const selfReferential = /\b(the|this|our)\s+brain\b/i.test(q);
+    if (!typeHint && !slugFamily && !selfReferential) return null;
     const token = rel[1]!.toLowerCase().replace(/\s+/g, ' ');
     const days =
       token === 'today' || token === 'yesterday'

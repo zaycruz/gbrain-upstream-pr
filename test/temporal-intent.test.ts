@@ -98,12 +98,16 @@ describe('parseTemporalQuery — superlative', () => {
 });
 
 describe('parseTemporalQuery — relative_window', () => {
-  test('"what changed in the brain this week" → no referent, returns null (WS5 guard)', () => {
-    // No type hint and no slug family — bare "this week" would arm the
-    // window against everything-recent noise. WS5 gates the arm on an
-    // in-brain referent.
+  test('"what changed in the brain this week" → self-referential brain query, 7-day window', () => {
+    // Self-referential ("the brain") IS a brain-scoped recency query —
+    // the relative_window arm's change-surface ordering handles it.
     const r = parseTemporalQuery('what changed in the brain this week', PACK, NOW);
-    expect(r).toBeNull();
+    expect(r?.kind).toBe('relative_window');
+    expect(r?.days).toBe(7);
+  });
+
+  test('bare "this week" with no referent and no brain mention → null (WS5 guard)', () => {
+    expect(parseTemporalQuery('what happened this week', PACK, NOW)).toBeNull();
   });
 
   test('"what changed in brain ops this week" → slug-family referent, 7-day window', () => {
