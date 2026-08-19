@@ -54,7 +54,7 @@ const MONTHS: Record<string, number> = {
 
 /** Slug families that carry ISO dates in the slug (date-addressable). */
 const SLUG_FAMILY_RE =
-  /\b(daily\s+reports?|brain\s+health|run-?logs?|journals?|meeting\s+notes?)\b/i;
+  /\b(daily\s+reports?|brain\s+health|run-?logs?|journals?|meeting\s+notes?|meetings?|escalations?)\b/i;
 
 /** Type-hint nouns that resolve against the pack vocabulary. */
 function extractTypeHint(q: string, packTypes: ReadonlySet<string>): string | undefined {

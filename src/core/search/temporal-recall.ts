@@ -188,10 +188,33 @@ export async function buildTemporalArm(
     }
 
     if (parsed.kind === 'superlative') {
-      const typeClause = parsed.pageType ? 'AND p.type = $2' : '';
       const params: unknown[] = [sources];
-      if (parsed.pageType) params.push(parsed.pageType);
-      params.push(limit);
+      // When the query names a date-addressable slug family ("daily
+      // report", "brain health", "run-log"), the family rows ARE the
+      // answer — "most recent brain daily report" must lead with the
+      // newest daily-report page, not the newest page of any type
+      // (agents/*/runs run-logs updated yesterday outrank last week's
+      // daily report on updated_at). NULLS LAST keeps non-family rows
+      // as tail context instead of filtering them out. The slug family
+      // is a STRONGER signal than the type hint: "daily report"
+      // extracts pageType 'report', but the daily-report pages are
+      // typed `ops-note` in the raava-base pack — a hard type filter
+      // would zero the arm's answer. So when a slug family is present,
+      // drop the type clause and let the family rank lead.
+      const effectivePageType = parsed.slugFamily ? undefined : parsed.pageType;
+      const typeClause = effectivePageType
+        ? `AND p.type = $${params.length + 1}`
+        : '';
+      if (effectivePageType) params.push(effectivePageType);
+      const familyRank = parsed.slugFamily
+        ? `CASE WHEN p.slug LIKE '%' || $${params.length + 1} || '%' THEN 0 ELSE 1 END,`
+        : '';
+      if (parsed.slugFamily) params.push(parsed.slugFamily.replace(/\s+/g, '-'));
+      // LIMIT is inlined (not a bind param): postgres infers $n types
+      // from context and a non-trailing numeric param binds as text,
+      // which LIMIT rejects ("argument of LIMIT must be type bigint").
+      // `limit` is already clamped to [1, 50] above, so inlining is
+      // safe and keeps every bind param unambiguously typed.
       const rows = await engine.executeRaw<PageRow>(
         `SELECT ${PAGE_COLS}
          FROM pages p
@@ -200,8 +223,8 @@ export async function buildTemporalArm(
            AND p.slug NOT LIKE '.archive/%'
            ${TEMPLATE_EXCLUDE}
            ${typeClause}
-         ORDER BY p.effective_date DESC NULLS LAST, p.updated_at DESC
-         LIMIT $${params.length}`,
+         ORDER BY ${familyRank} p.effective_date DESC NULLS LAST, p.updated_at DESC
+         LIMIT ${limit}`,
         params,
       );
       meta.fired = rows.length > 0;
@@ -211,6 +234,15 @@ export async function buildTemporalArm(
     if (parsed.kind === 'relative_window' && parsed.days) {
       const now = opts.now ?? new Date();
       const since = new Date(now.getTime() - parsed.days * 86_400_000).toISOString();
+      const params: unknown[] = [since, sources];
+      // Same slug-family priority as superlative: "recent escalations"
+      // wants escalation pages first. And order by effective_date (the
+      // content's own date), not updated_at — a bulk re-ingest bumps
+      // updated_at on every page and would scramble the window.
+      const familyRank = parsed.slugFamily
+        ? `CASE WHEN p.slug LIKE '%' || $${params.length + 1} || '%' THEN 0 ELSE 1 END,`
+        : '';
+      if (parsed.slugFamily) params.push(parsed.slugFamily.replace(/\s+/g, '-'));
       const rows = await engine.executeRaw<PageRow>(
         `SELECT ${PAGE_COLS}
          FROM pages p
@@ -219,9 +251,9 @@ export async function buildTemporalArm(
            AND p.deleted_at IS NULL
            AND p.slug NOT LIKE '.archive/%'
            ${TEMPLATE_EXCLUDE}
-         ORDER BY GREATEST(p.updated_at, COALESCE(p.effective_date, p.updated_at)) DESC
-         LIMIT $3`,
-        [since, sources, limit],
+         ORDER BY ${familyRank} p.effective_date DESC NULLS LAST, p.updated_at DESC
+         LIMIT ${limit}`,
+        params,
       );
       meta.fired = rows.length > 0;
       return finish(toResults(rows, parsed.kind));
