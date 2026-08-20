@@ -99,6 +99,23 @@ function escapeSqlStringLiteral(value: string): string {
   return value.replace(/'/g, "''");
 }
 
+// WS6c — temporal write-gate. These PageTypes are machine-generated and
+// inherently dateless: they carry no meaningful content date (an atom is a
+// claim extracted from a dated source; an extract_receipt records a run, not a
+// content date; event/diary primitives are timeline atoms). They are EXEMPT
+// from the effective_date requirement in putPage and rely on ingested_at
+// instead. Everything else — decisions, reports, notes, docs, lessons,
+// brainstorms, curated pages — must carry an effective_date or the write
+// hard-fails. PageType is an open string (v0.38), so this is a named allow-set
+// of dateless machine types, not a closed union we can switch over.
+const DATELESS_PAGE_TYPES = new Set<string>([
+  'atom',
+  'extract_receipt',
+  'event',
+  'diary',
+  'conversation',
+]);
+
 export function getPostgresSchema(
   dims: number = DEFAULT_EMBEDDING_DIMENSIONS,
   model: string = DEFAULT_EMBEDDING_MODEL,
@@ -1095,6 +1112,24 @@ export class PostgresEngine implements BrainEngine {
 
   async putPage(slug: string, page: PageInput, opts?: { sourceId?: string }): Promise<Page> {
     slug = validateSlug(slug);
+    // WS6c — temporal write-gate. Human/curated content MUST carry an
+    // effective_date so the temporal recall arm and freshness reporting can
+    // reason about it; a missing content date is the pollution vector the gate
+    // exists to close. Machine-generated, inherently-dateless types (atoms,
+    // extract receipts, run/event primitives) are exempt — they carry
+    // ingested_at instead. Hard-fail: no intelligence, no silent pass-through.
+    // Escape hatch: GBRAIN_ALLOW_DATELESS_WRITE=1 for the rare curated-import
+    // tool that genuinely cannot know a date (must be deliberate, not default).
+    const effectDate = page.effective_date ?? null;
+    if (effectDate == null && !DATELESS_PAGE_TYPES.has(page.type)
+        && process.env.GBRAIN_ALLOW_DATELESS_WRITE !== '1') {
+      throw new GBrainError(
+        'Write rejected: missing timestamp',
+        `putPage(${slug}) type='${page.type}' has no effective_date — temporal recall and freshness stamps require a content date`,
+        'Set effective_date (ISO date) on the page, or use a dateless machine type (atom/extract_receipt/event), or set GBRAIN_ALLOW_DATELESS_WRITE=1 for a deliberate curated import',
+      );
+    }
+
     const sql = this.sql;
     const hash = page.content_hash || contentHash(page);
     const frontmatter = page.frontmatter || {};

@@ -1,0 +1,722 @@
+[
+  {
+    "slug": "2026-06-11-vault-pr-gates-requirements",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-06-11-vault-pr-gates-requirements",
+      "compiled_truth": "Fixture page for 2026-06-11-vault-pr-gates-requirements. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-06-11T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "2026-07-04-gcp-exit-consultancy-reconciliation",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-07-04-gcp-exit-consultancy-reconciliation",
+      "compiled_truth": "Fixture page for 2026-07-04-gcp-exit-consultancy-reconciliation. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-04T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "2026-07-13-001-feat-foundry-application-portfolio-plan",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-07-13-001-feat-foundry-application-portfolio-plan",
+      "compiled_truth": "Fixture page for 2026-07-13-001-feat-foundry-application-portfolio-plan. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-13T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "2026-07-19-gbrain-stays-on-gcp",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-07-19-gbrain-stays-on-gcp",
+      "compiled_truth": "Fixture page for 2026-07-19-gbrain-stays-on-gcp. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-19T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "adr-brain-as-agent-native-structure",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "adr-brain-as-agent-native-structure",
+      "compiled_truth": "Fixture page for adr-brain-as-agent-native-structure. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "adr-brain-as-agent-native-structure-2026-05-20",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "adr-brain-as-agent-native-structure-2026-05-20",
+      "compiled_truth": "Fixture page for adr-brain-as-agent-native-structure-2026-05-20. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-05-20T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "agent-memory-convention",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "agent-memory-convention",
+      "compiled_truth": "Fixture page for agent-memory-convention. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "agents",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "agents",
+      "compiled_truth": "Fixture page for agents. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "agents/brain-manager/runs/2026-08-18",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-08-18",
+      "compiled_truth": "Fixture page for agents/brain-manager/runs/2026-08-18. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-18T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "agents/signal/memory/runs/2026-08-18",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-08-18",
+      "compiled_truth": "Fixture page for agents/signal/memory/runs/2026-08-18. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-18T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-decay-audit-2026-07-25",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "brain-decay-audit-2026-07-25",
+      "compiled_truth": "Fixture page for brain-decay-audit-2026-07-25. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-25T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-decay-policy-proposal-2026-07-25",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "brain-decay-policy-proposal-2026-07-25",
+      "compiled_truth": "Fixture page for brain-decay-policy-proposal-2026-07-25. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-25T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-health",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "brain-health",
+      "compiled_truth": "Fixture page for brain-health. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-health-2026-07-22",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "brain-health-2026-07-22",
+      "compiled_truth": "Fixture page for brain-health-2026-07-22. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-22T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-health-2026-07-23",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "brain-health-2026-07-23",
+      "compiled_truth": "Fixture page for brain-health-2026-07-23. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-23T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-health-2026-07-25",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "brain-health-2026-07-25",
+      "compiled_truth": "Fixture page for brain-health-2026-07-25. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-25T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "brain-ops-escalation-rubric",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "brain-ops-escalation-rubric",
+      "compiled_truth": "Fixture page for brain-ops-escalation-rubric. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "canonical_sources",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "canonical_sources",
+      "compiled_truth": "Fixture page for canonical_sources. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "concepts/shared/remote_brain_operating_protocol",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "remote_brain_operating_protocol",
+      "compiled_truth": "Fixture page for concepts/shared/remote_brain_operating_protocol. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "connect-brain",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "connect-brain",
+      "compiled_truth": "Fixture page for connect-brain. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "current-repo-map",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "current-repo-map",
+      "compiled_truth": "Fixture page for current-repo-map. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "daily-report",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "daily-report",
+      "compiled_truth": "Fixture page for daily-report. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "daily-report-2026-07-11",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "daily-report-2026-07-11",
+      "compiled_truth": "Fixture page for daily-report-2026-07-11. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-11T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "daily-report-2026-07-20",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "daily-report-2026-07-20",
+      "compiled_truth": "Fixture page for daily-report-2026-07-20. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-20T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "daily-report-2026-08-02",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "daily-report-2026-08-02",
+      "compiled_truth": "Fixture page for daily-report-2026-08-02. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-02T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "daily-report-2026-08-03",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "report",
+      "title": "daily-report-2026-08-03",
+      "compiled_truth": "Fixture page for daily-report-2026-08-03. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-03T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "engineering/index",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "index",
+      "compiled_truth": "Fixture page for engineering/index. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "fleet-inventory",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "fleet-inventory",
+      "compiled_truth": "Fixture page for fleet-inventory. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "fleet_inventory",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "fleet_inventory",
+      "compiled_truth": "Fixture page for fleet_inventory. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "foundry-internal-api",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "foundry-internal-api",
+      "compiled_truth": "Fixture page for foundry-internal-api. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "foundry-internal-api/application-layer",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "application-layer",
+      "compiled_truth": "Fixture page for foundry-internal-api/application-layer. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "foundry-internal-api/graphql-gateway",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "graphql-gateway",
+      "compiled_truth": "Fixture page for foundry-internal-api/graphql-gateway. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "foundry-internal-api/reverse-indexes",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "reverse-indexes",
+      "compiled_truth": "Fixture page for foundry-internal-api/reverse-indexes. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "foundry-unsupported-api-prompt-injection-2026-07-15",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "foundry-unsupported-api-prompt-injection-2026-07-15",
+      "compiled_truth": "Fixture page for foundry-unsupported-api-prompt-injection-2026-07-15. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-15T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "gbrain-fleet-onboarding",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-fleet-onboarding",
+      "compiled_truth": "Fixture page for gbrain-fleet-onboarding. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "gbrain-reference",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-reference",
+      "compiled_truth": "Fixture page for gbrain-reference. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "gbrain-upstream-upgrade-proposal-2026-07-21",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-upstream-upgrade-proposal-2026-07-21",
+      "compiled_truth": "Fixture page for gbrain-upstream-upgrade-proposal-2026-07-21. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-07-21T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "inbox/2026-08-17",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-08-17",
+      "compiled_truth": "Fixture page for inbox/2026-08-17. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-17T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "inbox/2026-08-18",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-08-18",
+      "compiled_truth": "Fixture page for inbox/2026-08-18. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-18T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "inbox/2026-08-19",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "2026-08-19",
+      "compiled_truth": "Fixture page for inbox/2026-08-19. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-19T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "lessons",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "lessons",
+      "compiled_truth": "Fixture page for lessons. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "meetings",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "meetings",
+      "compiled_truth": "Fixture page for meetings. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "remote_brain_operating_protocol",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "remote_brain_operating_protocol",
+      "compiled_truth": "Fixture page for remote_brain_operating_protocol. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "resolver",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "resolver",
+      "compiled_truth": "Fixture page for resolver. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "schema",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "schema",
+      "compiled_truth": "Fixture page for schema. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "tools/gbrain-reference",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-reference",
+      "compiled_truth": "Fixture page for tools/gbrain-reference. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "unified_org_vault_spec",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "unified_org_vault_spec",
+      "compiled_truth": "Fixture page for unified_org_vault_spec. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "write_policy",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "write_policy",
+      "compiled_truth": "Fixture page for write_policy. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  }
+]
