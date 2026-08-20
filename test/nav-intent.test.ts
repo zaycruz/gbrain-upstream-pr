@@ -21,9 +21,11 @@ describe('parseNavQuery — enumerate', () => {
     expect(r).toEqual({ kind: 'enumerate', pageType: 'decision' });
   });
 
-  test('"how do I find all decisions in the brain" → enumerate decision', () => {
+  // WS6e — the "how do I find X" phrasing asks for the INSTRUCTION MANUAL
+  // (canonical doc), not the items themselves. Changed from enumerate.
+  test('"how do I find all decisions in the brain" → canonical (instruction manual)', () => {
     const r = parseNavQuery('how do I find all decisions in the brain', PACK);
-    expect(r).toEqual({ kind: 'enumerate', pageType: 'decision' });
+    expect(r?.kind).toBe('canonical');
   });
 
   test('"list meetings" → enumerate meeting', () => {

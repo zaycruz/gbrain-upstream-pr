@@ -85,14 +85,23 @@ export function parseNavQuery(query: string, packTypes: ReadonlySet<string>): Na
   const q = (query ?? '').trim();
   if (q.length === 0 || q.length > 200) return null;
 
+  // WS6e — "how do I find/list/show X" phrasing asks for the INSTRUCTION
+  // (canonical doc), not the items. Detect the interrogative "how do I ..."
+  // wrapper BEFORE the enumerate branch below can claim it, and route to
+  // canonical. "find all decisions" (no "how do I") still enumerates the
+  // items; "how do I find all decisions" returns the doc that explains how.
+  const howDoI = /^\s*how\s+(?:do|can|could)\s+i\s+(.+?)\s*\??$/i.test(q);
+
   // enumerate: "all decisions", "find all run-logs", "list meetings".
   // Word-boundary head noun, singularized, must resolve to a pack type.
-  const en = q.match(ENUMERATE_RE) ?? q.match(ENUMERATE_LIST_RE);
-  if (en && en[1]) {
-    const head = en[1];
-    if (!NON_TYPE_HEADS.has(head.toLowerCase())) {
-      const t = resolveType(head, packTypes);
-      if (t) return { kind: 'enumerate', pageType: t };
+  if (!howDoI) {
+    const en = q.match(ENUMERATE_RE) ?? q.match(ENUMERATE_LIST_RE);
+    if (en && en[1]) {
+      const head = en[1];
+      if (!NON_TYPE_HEADS.has(head.toLowerCase())) {
+        const t = resolveType(head, packTypes);
+        if (t) return { kind: 'enumerate', pageType: t };
+      }
     }
   }
 
