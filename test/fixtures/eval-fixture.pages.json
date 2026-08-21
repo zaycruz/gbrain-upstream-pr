@@ -630,6 +630,21 @@
     }
   },
   {
+    "slug": "ops/live-state/schema-packs",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "schema-packs",
+      "compiled_truth": "Fixture page for ops/live-state/schema-packs. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
     "slug": "remote_brain_operating_protocol",
     "sourceId": "raava-brain",
     "page": {
@@ -666,6 +681,96 @@
       "type": "note",
       "title": "schema",
       "compiled_truth": "Fixture page for schema. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "state",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "state",
+      "compiled_truth": "Fixture page for state. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "state/index",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "index",
+      "compiled_truth": "Fixture page for state/index. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "state/live-state/gbrain-read-path",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-read-path",
+      "compiled_truth": "Fixture page for state/live-state/gbrain-read-path. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "state/live-state/gbrain-service",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-service",
+      "compiled_truth": "Fixture page for state/live-state/gbrain-service. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "state/live-state/gbrain-version",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "gbrain-version",
+      "compiled_truth": "Fixture page for state/live-state/gbrain-version. Seeded by build-eval-fixture for the hermetic retrieval gate.",
+      "timeline": "",
+      "frontmatter": {
+        "fixture": true
+      },
+      "effective_date": "2026-08-01T00:00:00.000Z",
+      "effective_date_source": "frontmatter"
+    }
+  },
+  {
+    "slug": "state/live-state/schema-packs",
+    "sourceId": "raava-brain",
+    "page": {
+      "type": "note",
+      "title": "schema-packs",
+      "compiled_truth": "Fixture page for state/live-state/schema-packs. Seeded by build-eval-fixture for the hermetic retrieval gate.",
       "timeline": "",
       "frontmatter": {
         "fixture": true
