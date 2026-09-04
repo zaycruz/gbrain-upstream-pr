@@ -87,6 +87,11 @@ export function formatResultExplain(
     const arrow = result.reranker_delta > 0 ? '↑' : '↓';
     lines.push(`   ${arrow} reranker rank ${result.reranker_delta > 0 ? '+' : ''}${result.reranker_delta}`);
   }
+  if (result.freshness_delta !== undefined && result.freshness_delta !== 0) {
+    anyBoost = true;
+    const arrow = result.freshness_delta > 0 ? '↑' : '↓';
+    lines.push(`   ${arrow} freshness rank ${result.freshness_delta > 0 ? '+' : ''}${result.freshness_delta}`);
+  }
   // v0.42.3.0 — show the cross-encoder rerank score (the signal autocut cuts
   // on). Surfacing it per result makes the autocut cliff legible: every kept
   // result sits at or above the cut threshold.

@@ -44,6 +44,70 @@ function hashQuery(query: string): string {
   return createHash('sha256').update(query, 'utf8').digest('hex').slice(0, 8);
 }
 
+const TEMPORAL_FRESHNESS_RELEVANCE_RATIO = 0.85;
+const ISO_DATE_PREFIX = /^\d{4}-\d{2}-\d{2}(?:$|T)/;
+
+function effectiveDateKey(result: SearchResult): string | null {
+  const value = result.effective_date;
+  return typeof value === 'string' && ISO_DATE_PREFIX.test(value)
+    ? value.slice(0, 10)
+    : null;
+}
+
+/**
+ * Restore freshness after semantic reranking for current-state queries.
+ *
+ * A cross-encoder scores topical relevance but does not know that "current",
+ * "latest", or "today" makes effective date a hard ordering signal. This
+ * stable guard reorders only dated candidates whose reranker score is within
+ * 85% of the strongest candidate. Weak or undated results keep their original
+ * positions, so freshness cannot displace an undated canonical page.
+ */
+export function applyTemporalFreshnessGuard(
+  results: SearchResult[],
+  enabled: boolean,
+): SearchResult[] {
+  if (!enabled || results.length < 2) return results;
+
+  let maxRelevance = Number.NEGATIVE_INFINITY;
+  for (const result of results) {
+    if (Number.isFinite(result.rerank_score) && result.rerank_score! > maxRelevance) {
+      maxRelevance = result.rerank_score!;
+    }
+  }
+  if (!Number.isFinite(maxRelevance) || maxRelevance <= 0) return results;
+
+  const relevanceFloor = maxRelevance * TEMPORAL_FRESHNESS_RELEVANCE_RATIO;
+  const eligiblePositions: number[] = [];
+  const eligibleResults: SearchResult[] = [];
+  for (let index = 0; index < results.length; index++) {
+    const result = results[index]!;
+    if (
+      Number.isFinite(result.rerank_score)
+      && result.rerank_score! >= relevanceFloor
+      && effectiveDateKey(result) !== null
+    ) {
+      eligiblePositions.push(index);
+      eligibleResults.push(result);
+    }
+  }
+  if (eligibleResults.length < 2) return results;
+
+  eligibleResults.sort((a, b) => effectiveDateKey(b)!.localeCompare(effectiveDateKey(a)!));
+  const originalPositions = new Map(results.map((result, index) => [result, index]));
+  const reordered = [...results];
+  for (let index = 0; index < eligiblePositions.length; index++) {
+    reordered[eligiblePositions[index]!] = eligibleResults[index]!;
+  }
+
+  for (let index = 0; index < reordered.length; index++) {
+    const result = reordered[index]!;
+    const delta = originalPositions.get(result)! - index;
+    if (delta !== 0) result.freshness_delta = delta;
+  }
+  return reordered;
+}
+
 /**
  * Reorder the top `topNIn` results by reranker relevance score. The
  * un-reranked tail (any rows past topNIn) preserves its original RRF

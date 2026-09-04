@@ -150,6 +150,15 @@ const RECENCY_ON_PATTERNS = [
   /\b(update|status|progress)\s+(on|with|from)\b/i,
 ];
 
+// Current-state health/status questions are implicitly temporal even when the
+// user does not say "latest" or "today". Keep this narrow: architecture or
+// definitional uses of "health" must not acquire recency semantics.
+const CURRENT_STATE_PATTERNS = [
+  /\bhow\s+(healthy|stable|available|reliable|ready)\s+(is|are)\b/i,
+  /\bwhat\s+is\s+(the\s+)?(current\s+)?(health|status|readiness)\s+(of|for)\b/i,
+  /\bcurrent\s+(state|status|health|condition|readiness)\b/i,
+];
+
 // Per D6: explicit temporal bounds override canonical-wins. "Who is X today"
 // → recency='on' (temporal bound wins). "Who is X" alone → recency='off'.
 const EXPLICIT_TEMPORAL_BOUND_PATTERNS = [
@@ -229,14 +238,16 @@ function matches(patterns: RegExp[], q: string): boolean {
   return false;
 }
 
+
 /**
  * Classify a query and return all three axis suggestions.
  *
  * Resolution rules:
  *   - intent:            original v0.29.0 priority (full-context > temporal > event > entity > general)
  *   - suggestedDetail:   intent → detail mapping (entity=low, temporal/event=high)
- *   - suggestedRecency:  STRONG_RECENCY > RECENCY_ON; CANONICAL wins UNLESS
- *                        EXPLICIT_TEMPORAL_BOUND also matches; default 'off'
+ *   - suggestedRecency:  STRONG_RECENCY > RECENCY_ON/CURRENT_STATE; CANONICAL
+ *                        wins UNLESS EXPLICIT_TEMPORAL_BOUND or CURRENT_STATE
+ *                        also matches; default 'off'
  *   - suggestedSalience: SALIENCE_ON; CANONICAL wins UNLESS
  *                        EXPLICIT_TEMPORAL_BOUND; default 'off'
  *
@@ -253,15 +264,16 @@ export function classifyQuery(query: string): QuerySuggestions {
   const hasTemporalBound = matches(EXPLICIT_TEMPORAL_BOUND_PATTERNS, query);
   const hasStrongRecency = matches(STRONG_RECENCY_PATTERNS, query);
   const hasRecencyOn = matches(RECENCY_ON_PATTERNS, query);
+  const hasCurrentState = matches(CURRENT_STATE_PATTERNS, query);
   const hasSalienceOn = matches(SALIENCE_ON_PATTERNS, query);
 
   // Recency axis
   let suggestedRecency: RecencyMode;
-  if (hasCanonical && !hasTemporalBound) {
+  if (hasCanonical && !hasTemporalBound && !hasCurrentState) {
     suggestedRecency = 'off';
   } else if (hasStrongRecency) {
     suggestedRecency = 'strong';
-  } else if (hasRecencyOn) {
+  } else if (hasRecencyOn || hasCurrentState) {
     suggestedRecency = 'on';
   } else {
     suggestedRecency = 'off';

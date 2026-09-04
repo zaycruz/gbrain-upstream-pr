@@ -81,6 +81,30 @@ beforeAll(async () => {
     ['notes/gamma', { type: 'note', title: 'Gamma Note', compiled_truth: 'alpha keyword content three' }, 'alpha keyword content three chunk'],
     ['notes/delta', { type: 'note', title: 'Delta Note', compiled_truth: 'alpha keyword content four' }, 'alpha keyword content four chunk'],
   ];
+  pages.push(
+    [
+      'notes/temporal-old',
+      {
+        type: 'report',
+        title: 'Older Status',
+        compiled_truth: 'how healthy is current temporal freshness evidence old legacy archive historical obsolete prior superseded snapshot',
+        effective_date: new Date('2026-07-03T00:00:00Z'),
+        effective_date_source: 'date',
+      },
+      'how healthy is current temporal freshness evidence old legacy archive historical obsolete prior superseded snapshot chunk',
+    ],
+    [
+      'notes/temporal-recent',
+      {
+        type: 'report',
+        title: 'Recent Status',
+        compiled_truth: 'how healthy is current temporal freshness evidence recent live operational verified production updated present active',
+        effective_date: new Date('2026-08-03T00:00:00Z'),
+        effective_date_source: 'date',
+      },
+      'how healthy is current temporal freshness evidence recent live operational verified production updated present active chunk',
+    ],
+  );
   for (const [slug, page, chunkText] of pages) {
     await engine.putPage(slug, page);
     await engine.upsertChunks(slug, [
@@ -276,6 +300,33 @@ describe('hybridSearch — reranker enabled (reorder)', () => {
     expect(out.length).toBeGreaterThan(0);
     // First result has the highest reranker score (0.5).
     expect((out[0] as any).rerank_score).toBe(0.5);
+  });
+
+  test('current-state intent restores effective-date order after reranking', async () => {
+    const oldSlug = 'notes/temporal-old';
+    const recentSlug = 'notes/temporal-recent';
+    const out = await hybridSearch(engine, 'how healthy is temporal freshness evidence', {
+      limit: 10,
+      autocut: false,
+      reranker: {
+        enabled: true,
+        topNIn: 30,
+        topNOut: null,
+        rerankerFn: async (input: RerankInput): Promise<RerankResult[]> =>
+          input.documents
+            .map((document, index) => ({
+              index,
+              relevanceScore: document.includes(' old ') ? 0.99 : 0.90,
+            }))
+            .sort((a, b) => b.relevanceScore - a.relevanceScore),
+      },
+    });
+    const temporalOrder = out
+      .map(result => result.slug)
+      .filter(slug => slug === oldSlug || slug === recentSlug);
+
+    expect(temporalOrder).toEqual([recentSlug, oldSlug]);
+    expect(out.find(result => result.slug === recentSlug)?.freshness_delta).toBeGreaterThan(0);
   });
 
   test('promotes title matches after reranking before the alias hop', async () => {
