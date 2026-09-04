@@ -8,6 +8,11 @@ import { LATEST_VERSION, getIdleBlockers } from '../core/migrate.ts';
 import { checkResolvable } from '../core/check-resolvable.ts';
 import { autoFixDryViolations, type AutoFixReport, type FixOutcome } from '../core/dry-fix.ts';
 import { autoDetectSkillsDirReadOnly } from '../core/repo-root.ts';
+import {
+  SKILLS_MANIFEST_FILENAME,
+  verifySkillsManifest,
+  type SkillsManifest,
+} from '../core/skills-integrity.ts';
 import { loadOrDeriveManifest } from '../core/skill-manifest.ts';
 import { parseSkillFrontmatter } from '../core/skill-frontmatter.ts';
 import {
@@ -33,9 +38,9 @@ import { reflexEnabled } from '../core/context/reflex.ts';
 import { resolveSocketPath } from '../core/context/resolve-ipc.ts';
 import { resolveOwnerHolder } from '../core/owner-holder.ts';
 import { homedir } from 'os';
-import { dirname, isAbsolute, join, resolve as resolvePath } from 'path';
+import { dirname, isAbsolute, join, relative, resolve as resolvePath, sep } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, readdirSync, statSync } from 'fs';
+import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from 'fs';
 import {
   extractEntityRefs,
   isGlobalBasenameEnabled,
@@ -49,6 +54,13 @@ import { lagFromContentMs } from '../core/source-health.ts';
 import { CHUNKER_VERSION } from '../core/chunkers/code.ts';
 import { LINK_EXTRACTOR_VERSION_TS } from '../core/link-extraction.ts';
 import { isUndefinedColumnError } from '../core/utils.ts';
+import {
+  loadStorageConfig,
+  effectiveDbOnlyDirs,
+  DERIVE_PHASE_DB_ONLY_DEFAULTS,
+  findDbOnlyCollisions,
+} from '../core/storage-config.ts';
+import { isSyncable, pruneDir, slugifyPath } from '../core/sync.ts';
 // issue #1777: hidden_by_search_policy — count chunked pages withheld from
 // default search by the hard-exclude prefix policy. Reuses the canonical
 // exclude resolver + LIKE escaper + visibility clause so the doctor count can't
@@ -61,6 +73,8 @@ import {
 import { escapeLikePattern, buildVisibilityClause } from '../core/search/sql-ranking.ts';
 import { unverifiedExtractionFragment } from '../core/extraction-review.ts';
 import { hnswIndexExpected, hnswMaxDimsForType } from '../core/vector-index.ts';
+import { wilsonCI } from '../core/eval-contradictions/calibration.ts';
+import type { Verdict } from '../core/eval-contradictions/types.ts';
 
 export interface Check {
   name: string;
@@ -3710,6 +3724,275 @@ export async function checkUnverifiedExtractions(
   }
 }
 
+function quoteDoctorShellArg(value: string): string {
+  if (/^[A-Za-z0-9_.:/@-]+$/.test(value)) return value;
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+/**
+ * issue #2250 (reported by @615Works) — content_hash_duplicates.
+ *
+ * `gbrain import` run from the wrong root (one level too deep) drops the
+ * path prefix from every slug, leaving `people/x` and `x` coexisting with
+ * identical content. `dream --phase purge` never removes them (they aren't
+ * file-backed orphans) and nothing surfaced the condition. One GROUP BY —
+ * never an N² hash comparison — flags hash groups that contain BOTH a bare
+ * slug (no '/') and a path-prefixed slug.
+ */
+export async function checkContentHashDuplicates(engine: BrainEngine): Promise<Check> {
+  const name = 'content_hash_duplicates';
+  const fix = 'Fix: gbrain pages delete <bare-slug> for each pair, then gbrain pages purge-deleted --older-than 0';
+  try {
+    const rows = await engine.executeRaw<{ source_id: string; content_hash: string; slugs: string }>(
+      `SELECT source_id, content_hash,
+              string_agg(slug, '|' ORDER BY length(slug), slug) AS slugs
+         FROM pages
+        WHERE deleted_at IS NULL AND content_hash IS NOT NULL AND content_hash <> ''
+        GROUP BY source_id, content_hash
+       HAVING count(*) > 1
+          AND count(*) FILTER (WHERE strpos(slug, '/') = 0) > 0
+          AND count(*) FILTER (WHERE strpos(slug, '/') > 0) > 0
+        LIMIT 50`,
+    );
+    if (rows.length === 0) {
+      return { name, status: 'ok', message: 'No content-hash duplicate pairs (bare vs path-prefixed slugs)' };
+    }
+    let pairCount = 0;
+    const samples: string[] = [];
+    for (const r of rows) {
+      const slugs = String(r.slugs).split('|');
+      const prefixed = slugs.filter(s => s.includes('/'));
+      for (const bare of slugs.filter(s => !s.includes('/'))) {
+        const twin = prefixed.find(p => p.endsWith('/' + bare)) ?? prefixed[0];
+        pairCount++;
+        if (samples.length < 5) samples.push(`${bare} <-> ${twin}`);
+      }
+    }
+    return {
+      name,
+      status: 'warn',
+      message: `${pairCount} content-hash duplicate pair(s) detected (same content, differing slug forms — usually an import run from the wrong root, which drops the path prefix). Sample: ${samples.join('; ')}. ${fix}`,
+      details: { pair_count: pairCount, hash_groups: rows.length, sample_pairs: samples },
+    };
+  } catch (e) {
+    return { name, status: 'warn', message: `Could not check content-hash duplicates: ${(e as Error).message}` };
+  }
+}
+
+/** Walk a repo for markdown files and return their slugified (lowercased) slugs. */
+function collectMarkdownSlugs(root: string): Set<string> {
+  const out = new Set<string>();
+  const stack = [''];
+  while (stack.length > 0) {
+    const rel = stack.pop()!;
+    const dir = rel ? join(root, rel) : root;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const e of entries) {
+      const childRel = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) {
+        if (pruneDir(e.name, dir)) stack.push(childRel);
+      } else if (isSyncable(childRel)) {
+        out.add(slugifyPath(childRel).toLowerCase());
+      }
+    }
+  }
+  return out;
+}
+
+function hasExistingSourceFile(root: string, sourcePath: string | null): boolean {
+  if (!sourcePath || isAbsolute(sourcePath) || !/\.mdx?$/i.test(sourcePath)) return false;
+  const fullPath = resolvePath(root, sourcePath);
+  const relativePath = relative(root, fullPath);
+  if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) return false;
+  try {
+    const realRoot = realpathSync(root);
+    const realFile = realpathSync(fullPath);
+    const realRelativePath = relative(realRoot, realFile);
+    if (
+      realRelativePath === '..' ||
+      realRelativePath.startsWith(`..${sep}`) ||
+      isAbsolute(realRelativePath)
+    ) {
+      return false;
+    }
+    return statSync(realFile).isFile();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * issue #2784 (reported by @alexputici) — undeclared_db_only_pages.
+ *
+ * A markdown page with no normal-sync backing file that sits outside every
+ * declared db_only path is a recovery risk. The check distinguishes pages
+ * with no source file from pages whose source_path still exists but is
+ * excluded by sync policy; the latter are recoverable only through an
+ * explicit re-import. Capture CLI writes are intentionally DB-only and are
+ * reported separately because they depend on database backups by design.
+ * The engine's own derive-phase output prefixes
+ * (DERIVE_PHASE_DB_ONLY_DEFAULTS) count as implicitly declared so the check
+ * stays quiet on healthy brains. Deliberately allowed to stat the source
+ * repo (the one thing the SQL-only check registry could never see).
+ */
+export async function checkUndeclaredDbOnlyPages(engine: BrainEngine): Promise<Check> {
+  const name = 'undeclared_db_only_pages';
+  try {
+    const sources = await engine.executeRaw<{ id: string; local_path: string | null }>(
+      `SELECT id, local_path FROM sources WHERE local_path IS NOT NULL`,
+    );
+    const checkable = sources.filter(s => s.local_path && existsSync(s.local_path));
+    if (checkable.length === 0) {
+      return { name, status: 'ok', message: 'Not applicable (no sources with a local repo path on this host)' };
+    }
+    let total = 0;
+    let captureCliDbOnly = 0;
+    let missingSourceFiles = 0;
+    let manualReimportFiles = 0;
+    const missingSamples: string[] = [];
+    const manualSamples: string[] = [];
+    const perSource: Record<string, number> = {};
+    for (const src of checkable) {
+      let declared: string[] = [];
+      try {
+        declared = loadStorageConfig(src.local_path)?.db_only ?? [];
+      } catch {
+        // invalid gbrain.yml — treated as no declarations; the sync path
+        // already surfaces the config error itself.
+      }
+      const dbOnlyDirs = effectiveDbOnlyDirs(declared);
+      const rows = await engine.executeRaw<{
+        slug: string;
+        source_kind: string | null;
+        source_path: string | null;
+      }>(
+        `SELECT slug, source_kind, source_path FROM pages WHERE deleted_at IS NULL AND source_id = $1 AND page_kind = 'markdown'`,
+        [src.id],
+      );
+      if (rows.length === 0) continue;
+      const backed = collectMarkdownSlugs(src.local_path!);
+      for (const { slug, source_kind: sourceKind, source_path: sourcePath } of rows) {
+        if (dbOnlyDirs.some(dir => slug.startsWith(dir))) continue;
+        if (backed.has(slug)) continue;
+        if (sourceKind === 'capture-cli') {
+          captureCliDbOnly++;
+          continue;
+        }
+        total++;
+        perSource[src.id] = (perSource[src.id] ?? 0) + 1;
+        if (hasExistingSourceFile(src.local_path!, sourcePath)) {
+          manualReimportFiles++;
+          if (manualSamples.length < 5) manualSamples.push(`${slug} (src=${src.id}, path=${sourcePath})`);
+        } else {
+          missingSourceFiles++;
+          if (missingSamples.length < 5) missingSamples.push(`${slug} (src=${src.id})`);
+        }
+      }
+    }
+    const captureDependency =
+      captureCliDbOnly === 0
+        ? ''
+        : `; ${captureCliDbOnly} capture-cli page(s) are intentionally DB-only and depend on database backups`;
+    const captureExclusion =
+      captureCliDbOnly === 0
+        ? ''
+        : ` ${captureCliDbOnly} unbacked capture-cli page(s) are intentionally DB-only and excluded from this warning.`;
+    const missingSampleSummary =
+      missingSamples.length === 0 ? '' : ` Missing-source sample: ${missingSamples.join('; ')}.`;
+    const manualSampleSummary =
+      manualSamples.length === 0 ? '' : ` Manual-reimport sample: ${manualSamples.join('; ')}.`;
+    if (total === 0) {
+      return {
+        name,
+        status: 'ok',
+        message: `Every non-capture DB page is file-backed or under a declared/default db_only path${captureDependency} (derive-phase defaults: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
+        details: {
+          total: 0,
+          missing_source_files: 0,
+          manual_reimport_files: 0,
+          capture_cli_db_only: captureCliDbOnly,
+        },
+      };
+    }
+    return {
+      name,
+      status: 'warn',
+      message: `${total} DB page(s) lack an automatic file-lane recovery path: ${missingSourceFiles} have no backing source file; ${manualReimportFiles} have an existing source file excluded by normal sync and require explicit re-import.${captureExclusion}${missingSampleSummary}${manualSampleSummary} Fix missing sources: restore or export the files, or declare their prefixes under storage.db_only in gbrain.yml. Fix manual re-imports: move or rename the source into a syncable path, or document and test an explicit import procedure (derive-phase defaults already cover: ${DERIVE_PHASE_DB_ONLY_DEFAULTS.join(' ')})`,
+      details: {
+        total,
+        missing_source_files: missingSourceFiles,
+        manual_reimport_files: manualReimportFiles,
+        per_source: perSource,
+        missing_source_samples: missingSamples,
+        manual_reimport_samples: manualSamples,
+        capture_cli_db_only: captureCliDbOnly,
+      },
+    };
+  } catch (e) {
+    return { name, status: 'warn', message: `Could not check undeclared db-only pages: ${(e as Error).message}` };
+  }
+}
+
+/**
+ * issue #2788 (reported by @alexputici) — db_only_collector_collision.
+ *
+ * Declaring a collector's output dir in storage.db_only silently kills its
+ * ingestion: manageGitignore auto-gitignores the dir, the git-walking sync
+ * never sees the files, and import honors .gitignore too — everything stays
+ * green while nothing reaches the DB (a 7-week outage in the field). The
+ * recipe's `output_paths` frontmatter is the ground truth; the same warning
+ * also fires at .gitignore-write time inside sync's manageGitignore.
+ */
+export async function checkDbOnlyCollectorCollision(
+  engine: BrainEngine,
+  opts?: { collectors?: Array<{ id: string; output_path: string }> },
+): Promise<Check> {
+  const name = 'db_only_collector_collision';
+  try {
+    let collectors = opts?.collectors;
+    if (!collectors) {
+      const { getConfiguredCollectorOutputs } = await import('./integrations.ts');
+      collectors = getConfiguredCollectorOutputs();
+    }
+    if (collectors.length === 0) {
+      return { name, status: 'ok', message: 'No configured collectors declare output paths' };
+    }
+    const sources = await engine.executeRaw<{ id: string; local_path: string | null }>(
+      `SELECT id, local_path FROM sources WHERE local_path IS NOT NULL`,
+    );
+    const hits: string[] = [];
+    for (const src of sources) {
+      if (!src.local_path || !existsSync(src.local_path)) continue;
+      let dbOnly: string[] = [];
+      try {
+        dbOnly = loadStorageConfig(src.local_path)?.db_only ?? [];
+      } catch {
+        continue;
+      }
+      if (dbOnly.length === 0) continue;
+      for (const hit of findDbOnlyCollisions(collectors, dbOnly)) {
+        hits.push(`collector '${hit.id}' writes to '${hit.output_path}' which is inside db_only path '${hit.db_only_dir}' (source ${src.id})`);
+      }
+    }
+    if (hits.length === 0) {
+      return { name, status: 'ok', message: 'No collector output dir falls inside a db_only path' };
+    }
+    return {
+      name,
+      status: 'warn',
+      message: `${hits.length} collector/db_only collision(s): ${hits.join('; ')}. db_only dirs are auto-gitignored, so sync AND import silently skip files there — the collector runs green while nothing reaches the DB. Fix: remove the prefix from storage.db_only in gbrain.yml, or move the collector output.`,
+      details: { collisions: hits },
+    };
+  } catch (e) {
+    return { name, status: 'warn', message: `Could not check collector/db_only collisions: ${(e as Error).message}` };
+  }
+}
+
 /**
  * issue #1678 — extract_atoms_backlog doctor check.
  *
@@ -3731,11 +4014,13 @@ export async function computeExtractAtomsBacklogCheck(
   const name = 'extract_atoms_backlog';
   const approx = 'page backlog only; transcript corpus not counted';
   try {
-    const { countExtractAtomsBacklog } = await import('../core/cycle/extract-atoms.ts');
-    const backlog = await countExtractAtomsBacklog(engine); // brain-wide
-    if (backlog === null) {
+    const { countExtractAtomsBacklogBySource } = await import('../core/cycle/extract-atoms.ts');
+    const sourceBacklogs = await countExtractAtomsBacklogBySource(engine);
+    if (sourceBacklogs === null) {
       return { name, status: 'warn', message: 'backlog query failed (could not count eligible pages)' };
     }
+    const affectedSources = Object.entries(sourceBacklogs).filter(([, count]) => count > 0);
+    const backlog = affectedSources.reduce((total, [, count]) => total + count, 0);
 
     const { packDeclaresPhase } = await import('../core/cycle.ts');
     let declared = false;
@@ -3745,18 +4030,35 @@ export async function computeExtractAtomsBacklogCheck(
       return {
         name, status: 'ok',
         message: 'no pages awaiting atom extraction',
-        details: { backlog, pack_declares_phase: declared, known_approximation: approx },
+        details: {
+          backlog,
+          source_backlogs: sourceBacklogs,
+          pack_declares_phase: declared,
+          known_approximation: approx,
+        },
       };
     }
 
     // The incident: pack does NOT run the phase but a real backlog exists →
-    // it will grow forever without a signal. WARN with the drain command.
+    // it will grow forever without a signal. WARN with source-scoped commands;
+    // an unscoped drain can resolve a different default source and do no work.
     if (!declared && backlog > 10) {
-      const fix = 'gbrain dream --phase extract_atoms --drain --window 120 (or declare extract_atoms in your active schema pack)';
+      const commands = affectedSources.map(([sourceId]) =>
+        `gbrain dream --phase extract_atoms --drain --source ${quoteDoctorShellArg(sourceId)} --window 120`,
+      );
+      const fix = commands.length === 1
+        ? commands[0]
+        : `run once per affected source: ${commands.join(' ; ')}`;
       return {
         name, status: 'warn',
-        message: `${backlog} pages eligible for atom extraction but the active pack does not run extract_atoms — backlog growing. Fix: ${fix}`,
-        details: { backlog, pack_declares_phase: false, fix_hint: fix, known_approximation: approx },
+        message: `${backlog} pages eligible for atom extraction but the active pack does not run extract_atoms — backlog growing. Fix: ${fix} (or declare extract_atoms in your active schema pack)`,
+        details: {
+          backlog,
+          source_backlogs: sourceBacklogs,
+          pack_declares_phase: false,
+          fix_hint: fix,
+          known_approximation: approx,
+        },
       };
     }
 
@@ -3765,7 +4067,12 @@ export async function computeExtractAtomsBacklogCheck(
       return {
         name, status: 'ok',
         message: `${backlog} page(s) pending; active pack runs extract_atoms each cycle`,
-        details: { backlog, pack_declares_phase: true, known_approximation: approx },
+        details: {
+          backlog,
+          source_backlogs: sourceBacklogs,
+          pack_declares_phase: true,
+          known_approximation: approx,
+        },
       };
     }
 
@@ -3773,7 +4080,12 @@ export async function computeExtractAtomsBacklogCheck(
     return {
       name, status: 'ok',
       message: `${backlog} page(s) eligible (below warn threshold; pack does not run extract_atoms)`,
-      details: { backlog, pack_declares_phase: false, known_approximation: approx },
+      details: {
+        backlog,
+        source_backlogs: sourceBacklogs,
+        pack_declares_phase: false,
+        known_approximation: approx,
+      },
     };
   } catch (err) {
     return { name, status: 'warn', message: `extract_atoms_backlog check failed: ${(err as Error).message}` };
@@ -4925,6 +5237,15 @@ export async function buildChecks(
     checks.push(skillBrainFirstCheck(skillsDir));
   }
 
+  // 2c. Skills manifest integrity (#159): tamper-evidence, not signatures.
+  // Compares the skills tree against its committed skills.lock.json and
+  // WARNS on drift — never fails, never blocks. No manifest (e.g. a user
+  // workspace skills dir, or a compiled binary far from the repo) → ok/skip.
+  // SKILL group — gated.
+  if (scope === 'all' && skillsDir) {
+    checks.push(skillsManifestIntegrityCheck(skillsDir));
+  }
+
   // 3. Half-migrated Minions detection (filesystem-only).
   // If completed.jsonl has any status:"partial" entry with no later
   // status:"complete" for the same version, the install is mid-migration.
@@ -5682,6 +6003,42 @@ export async function buildChecks(
     // Best-effort filesystem-hygiene check; never block doctor.
   }
 
+  // 3f. npm_squat (#505). The npm registry name `gbrain` belongs to an
+  // unrelated third-party package — this project is NOT distributed on npm.
+  // A reflexive `npm i -g gbrain` / `bun add -g gbrain` installs something
+  // unrelated that can shadow the real binary on PATH. Classify every
+  // `gbrain` that `which -a` finds (pure helpers in
+  // src/core/npm-squat-check.ts) and warn when an unrelated install wins on
+  // PATH or the entry is broken. Skips silently when gbrain isn't on PATH
+  // at all (e.g. running via `bun src/cli.ts`).
+  try {
+    const { execSync } = await import('node:child_process');
+    let candidates: string[] = [];
+    try {
+      candidates = execSync('which -a gbrain', {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+    } catch {
+      // `which` exits non-zero when gbrain isn't on PATH (or is missing
+      // entirely on this platform) — nothing to check.
+    }
+    const { assessGbrainBinaries } = await import('../core/npm-squat-check.ts');
+    const assessment = assessGbrainBinaries(candidates);
+    if (assessment.status !== 'skip') {
+      checks.push({
+        name: 'npm_squat',
+        status: assessment.status,
+        message: assessment.message,
+      });
+    }
+  } catch {
+    // Best-effort environment check; never block doctor.
+  }
+
   // 3b-multi-source. Multi-source drift (v0.31.8 — D8 + D17 + OV12 + OV13).
   // Pre-v0.30.3 putPage misrouted multi-source writes to (default, slug).
   // For each non-default source with local_path set, walk the FS and surface
@@ -6146,7 +6503,10 @@ export async function buildChecks(
     } else {
       // Live embed test
       const start = Date.now();
-      const vec = await embedOne('gbrain doctor embedding smoke test');
+      // Doctor is itself the provider-health circuit breaker. A permanent
+      // billing/auth failure must be sampled once, not multiplied by the AI
+      // SDK's default retries (which can add ~90s to every health check).
+      const vec = await embedOne('gbrain doctor embedding smoke test', { maxRetries: 0 });
       const ms = Date.now() - start;
       const actualDims = vec.length;
 
@@ -7258,6 +7618,7 @@ export async function buildChecks(
       const report = latest.report_json as Record<string, unknown> | null;
       const perQuery = (report?.per_query as Array<{
         contradictions: Array<{
+          verdict?: Verdict;
           severity: 'low' | 'medium' | 'high';
           axis: string;
           a: { slug: string };
@@ -7266,28 +7627,46 @@ export async function buildChecks(
         }>;
       }> | undefined) ?? [];
       let high = 0, medium = 0, low = 0;
+      let classified = 0;
+      let queriesWithContradiction = 0;
       const highFindings: Array<{ a: string; b: string; axis: string; cmd: string }> = [];
       for (const q of perQuery) {
+        let queryHasContradiction = false;
         for (const c of q.contradictions) {
+          // Legacy reports predate the verdict field and contained only
+          // contradictions. Preserve their warning behavior.
+          if ((c.verdict ?? 'contradiction') !== 'contradiction') {
+            classified++;
+            continue;
+          }
+          queryHasContradiction = true;
           if (c.severity === 'high') {
             high++;
             highFindings.push({ a: c.a.slug, b: c.b.slug, axis: c.axis, cmd: c.resolution_command });
           } else if (c.severity === 'medium') medium++;
           else low++;
         }
+        if (queryHasContradiction) queriesWithContradiction++;
       }
       const total = high + medium + low;
       if (total === 0) {
+        const classifiedSuffix = classified > 0
+          ? `; excluded ${classified} non-contradiction classification(s)`
+          : '';
         checks.push({
           name: 'contradictions',
           status: 'ok',
-          message: `Latest probe run (${latest.ran_at.slice(0, 10)}) found no suspected contradictions across ${latest.queries_evaluated} queries.`,
+          message: `Latest probe run (${latest.ran_at.slice(0, 10)}) found no genuine contradictions across ${latest.queries_evaluated} queries${classifiedSuffix}.`,
         });
       } else {
-        const ciLow = (latest.wilson_ci_lower * 100).toFixed(0);
-        const ciHigh = (latest.wilson_ci_upper * 100).toFixed(0);
+        const ci = wilsonCI(queriesWithContradiction, latest.queries_evaluated);
+        const ciLow = (ci.lower * 100).toFixed(0);
+        const ciHigh = (ci.upper * 100).toFixed(0);
+        const classifiedSuffix = classified > 0
+          ? `; excluded ${classified} non-contradiction classification(s)`
+          : '';
         const lines = [
-          `${total} suspected contradictions (high=${high} medium=${medium} low=${low}) detected by latest probe — Wilson CI 95%: ${ciLow}-${ciHigh}%.`,
+          `${total} genuine contradiction(s) (high=${high} medium=${medium} low=${low}) detected by latest probe — Wilson CI 95%: ${ciLow}-${ciHigh}%${classifiedSuffix}.`,
         ];
         for (const f of highFindings.slice(0, 3)) {
           lines.push(`  HIGH: ${f.a} vs ${f.b}${f.axis ? ' — ' + f.axis : ''}`);
@@ -7653,33 +8032,44 @@ export async function buildChecks(
         `SELECT storage_path FROM files WHERE mime_type LIKE 'image/%' LIMIT 1000`
       );
       let vanished = 0;
+      let foreign = 0;
       const vanishedPaths: string[] = [];
       const fs = await import('node:fs');
-      const nodePath = await import('node:path');
+      const { resolveAssetPath } = await import('./doctor-asset-paths.ts');
       // storage_path is repo-relative for sync-ingested assets. Resolving
       // against cwd made this check a false-positive WARN whenever doctor
       // ran outside the brain repo.
       const repoRoot = (await engine.getConfig('sync.repo_path')) ?? process.cwd();
       for (const r of rows) {
-        const abs = nodePath.isAbsolute(r.storage_path)
-          ? r.storage_path
-          : nodePath.join(repoRoot, r.storage_path);
+        // #1835: Windows drive paths (D:/…) translate to the WSL automount
+        // (/mnt/d/…) under WSL, and are SKIPPED (not "missing") on hosts
+        // where they cannot exist (macOS / plain Linux) — never joined onto
+        // repoRoot, which produced a false "restore from git" WARN.
+        const resolved = resolveAssetPath(r.storage_path, repoRoot);
+        if (resolved.abs === null) {
+          foreign++;
+          continue;
+        }
         try {
-          fs.statSync(abs);
+          fs.statSync(resolved.abs);
         } catch {
           vanished++;
           if (vanishedPaths.length < 5) vanishedPaths.push(r.storage_path);
         }
       }
+      const checked = rows.length - foreign;
+      const foreignNote = foreign > 0
+        ? ` (${foreign} Windows-drive path(s) skipped — not resolvable on this platform)`
+        : '';
       if (rows.length === 0) {
         checks.push({ name: 'image_assets', status: 'ok', message: 'No image assets indexed yet' });
       } else if (vanished === 0) {
-        checks.push({ name: 'image_assets', status: 'ok', message: `${rows.length} image(s) all present on disk` });
+        checks.push({ name: 'image_assets', status: 'ok', message: `${checked} image(s) all present on disk${foreignNote}` });
       } else {
         checks.push({
           name: 'image_assets',
           status: 'warn',
-          message: `${vanished} of ${rows.length} image(s) missing from disk (e.g. ${vanishedPaths.join(', ')}). ` +
+          message: `${vanished} of ${checked} image(s) missing from disk (e.g. ${vanishedPaths.join(', ')})${foreignNote}. ` +
                    `Fix: restore from git, or \`gbrain sync --skip-failed\` to acknowledge.`,
         });
       }
@@ -7739,6 +8129,14 @@ export async function buildChecks(
     // per-source dispatch gate sees.
     progress.heartbeat('cycle_freshness');
     checks.push(await checkCycleFreshness(engine));
+    // Silent-failure batch (#2250 / #2784 / #2788): wrong-root import
+    // duplicates, undeclared DB-only pages, collector-output-in-db_only.
+    progress.heartbeat('content_hash_duplicates');
+    checks.push(await checkContentHashDuplicates(engine));
+    progress.heartbeat('undeclared_db_only_pages');
+    checks.push(await checkUndeclaredDbOnlyPages(engine));
+    progress.heartbeat('db_only_collector_collision');
+    checks.push(await checkDbOnlyCollectorCollision(engine));
   }
 
   // v0.32.3 search-lite — mode + eval_drift surfaces. Status stays 'ok' per
@@ -7973,6 +8371,51 @@ export function skillConformanceCheck(skillsDir: string): Check {
  * Test seam: pure function, no `process.exit`. Direct call from tests
  * with a synthetic skills dir under tempdir.
  */
+/**
+ * Skills-manifest integrity check (#159). Verifies the skills tree against
+ * the committed skills.lock.json tamper-evidence manifest. Advisory only:
+ * drift is a WARN (local edits are legitimate), and a missing/unreadable
+ * manifest is an ok/skip — a user's workspace skills dir or a compiled
+ * binary far from the repo has no manifest, and that is not a problem.
+ */
+export function skillsManifestIntegrityCheck(skillsDir: string): Check {
+  const name = 'skills_manifest_integrity';
+  const manifestPath = join(skillsDir, SKILLS_MANIFEST_FILENAME);
+  if (!existsSync(manifestPath)) {
+    return { name, status: 'ok', message: `No ${SKILLS_MANIFEST_FILENAME} in ${skillsDir} — integrity check not applicable` };
+  }
+  let drift: ReturnType<typeof verifySkillsManifest>;
+  let tracked: number;
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as SkillsManifest;
+    tracked = Object.keys(manifest).length;
+    drift = verifySkillsManifest(skillsDir, manifest);
+  } catch (err) {
+    // Fail-safe: an unreadable/unparseable manifest or a filesystem error
+    // skips the check rather than warning — this check must never block.
+    const msg = err instanceof Error ? err.message : String(err);
+    return { name, status: 'ok', message: `Could not verify ${SKILLS_MANIFEST_FILENAME} (${msg}) — integrity check skipped` };
+  }
+  const total = drift.modified.length + drift.missing.length + drift.extra.length;
+  if (total === 0) {
+    return { name, status: 'ok', message: `${tracked} bundled skill files match ${SKILLS_MANIFEST_FILENAME}` };
+  }
+  const sample = (files: string[]): string =>
+    files.slice(0, 5).join(', ') + (files.length > 5 ? `, … +${files.length - 5} more` : '');
+  const parts: string[] = [];
+  if (drift.modified.length > 0) parts.push(`${drift.modified.length} modified (${sample(drift.modified)})`);
+  if (drift.missing.length > 0) parts.push(`${drift.missing.length} missing (${sample(drift.missing)})`);
+  if (drift.extra.length > 0) parts.push(`${drift.extra.length} extra (${sample(drift.extra)})`);
+  return {
+    name,
+    status: 'warn',
+    message:
+      `skills/ drifted from ${SKILLS_MANIFEST_FILENAME} (advisory — local edits are fine): ${parts.join('; ')}. ` +
+      `If intentional, regenerate: bun run scripts/generate-skills-manifest.ts`,
+    details: { modified: drift.modified, missing: drift.missing, extra: drift.extra },
+  };
+}
+
 export function skillBrainFirstCheck(skillsDir: string): Check {
   let manifest: ReturnType<typeof loadOrDeriveManifest>;
   try {

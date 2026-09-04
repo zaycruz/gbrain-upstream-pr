@@ -38,6 +38,10 @@ describe('KNOWN_CONFIG_KEYS', () => {
     expect(KNOWN_CONFIG_KEYS).toContain('models.tier.subagent');
   });
 
+  test('allows the contextual synopsis model key', () => {
+    expect(KNOWN_CONFIG_KEYS).toContain('models.contextual_synopsis');
+  });
+
   test('contains the dream synthesize timeout keys (#1594)', () => {
     expect(KNOWN_CONFIG_KEYS).toContain('dream.synthesize.subagent_timeout_ms');
     expect(KNOWN_CONFIG_KEYS).toContain('dream.synthesize.subagent_wait_timeout_ms');
@@ -65,6 +69,11 @@ describe('KNOWN_CONFIG_KEYS', () => {
     expect(KNOWN_CONFIG_KEYS).toContain('conversation_parser.llm_fallback_enabled');
     expect(KNOWN_CONFIG_KEY_PREFIXES).not.toContain('conversation_parser.');
     expect(KNOWN_CONFIG_KEYS).not.toContain('conversation_parser.llm_polish_enabled');
+  });
+
+  test('contains orphan-reporting override keys', () => {
+    expect(KNOWN_CONFIG_KEYS).toContain('orphans.exclude_prefixes');
+    expect(KNOWN_CONFIG_KEYS).toContain('orphans.exclude_slugs');
   });
 
   test('no duplicate entries', () => {

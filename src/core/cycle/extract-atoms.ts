@@ -360,53 +360,76 @@ export async function discoverExtractablePages(
  * Fail-soft: returns null on error so the doctor check can report a warn
  * (query failed) rather than a misleading 0.
  */
+export async function countExtractAtomsBacklogBySource(
+  engine: BrainEngine,
+): Promise<Record<string, number> | null> {
+  try {
+    const sql = `
+      SELECT p.source_id, COUNT(*) AS cnt
+      FROM pages p
+      WHERE p.type = ANY($1::text[])
+        AND p.deleted_at IS NULL
+        AND p.content_hash IS NOT NULL
+        AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
+        AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
+        ${RAW_SOURCE_HOLDER_EXCLUSION_SQL}
+        AND length(COALESCE(p.compiled_truth, '')) >= $2
+        AND COALESCE(p.frontmatter->>'atoms_scan_hash', '') <> substring(p.content_hash from 1 for 16)
+        AND NOT EXISTS (
+          SELECT 1 FROM pages atom
+          WHERE atom.type = 'atom' AND atom.source_id = p.source_id
+            AND atom.frontmatter->>'source_hash' = substring(p.content_hash from 1 for 16)
+            AND atom.deleted_at IS NULL
+        )
+      GROUP BY p.source_id
+      ORDER BY p.source_id
+    `;
+    const rows = await engine.executeRaw<{ source_id: string; cnt: string | number }>(
+      sql,
+      [await resolveExtractableTypes(), MIN_PAGE_CHARS_FOR_EXTRACTION],
+    );
+    return Object.fromEntries(rows.map(row => [row.source_id, Number(row.cnt)]));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[extract_atoms] backlog count failed: ${msg}`);
+    return null;
+  }
+}
+
 export async function countExtractAtomsBacklog(
   engine: BrainEngine,
   sourceId?: string,
 ): Promise<number | null> {
+  if (sourceId === undefined) {
+    const bySource = await countExtractAtomsBacklogBySource(engine);
+    return bySource === null
+      ? null
+      : Object.values(bySource).reduce((total, count) => total + count, 0);
+  }
+
   try {
-    // Two modes: scoped (the phase's per-source `remaining`) vs brain-wide
-    // (doctor — matches the conversation-facts check's cross-source posture).
-    // The atom must live in the SAME source as the page either way, so the
-    // brain-wide form keys the NOT EXISTS on `atom.source_id = p.source_id`.
-    const scoped = sourceId !== undefined;
-    const sql = scoped
-      ? `SELECT COUNT(*) AS cnt FROM pages p
-         WHERE p.source_id = $1
-           AND p.type = ANY($2::text[])
-           AND p.deleted_at IS NULL
-           AND p.content_hash IS NOT NULL
-           AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
-           AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
-           ${RAW_SOURCE_HOLDER_EXCLUSION_SQL}
-           AND length(COALESCE(p.compiled_truth, '')) >= $3
-           AND COALESCE(p.frontmatter->>'atoms_scan_hash', '') <> substring(p.content_hash from 1 for 16)
-           AND NOT EXISTS (
-             SELECT 1 FROM pages atom
-             WHERE atom.type = 'atom' AND atom.source_id = $1
-               AND atom.frontmatter->>'source_hash' = substring(p.content_hash from 1 for 16)
-               AND atom.deleted_at IS NULL
-           )`
-      : `SELECT COUNT(*) AS cnt FROM pages p
-         WHERE p.type = ANY($1::text[])
-           AND p.deleted_at IS NULL
-           AND p.content_hash IS NOT NULL
-           AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
-           AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
-           ${RAW_SOURCE_HOLDER_EXCLUSION_SQL}
-           AND length(COALESCE(p.compiled_truth, '')) >= $2
-           AND COALESCE(p.frontmatter->>'atoms_scan_hash', '') <> substring(p.content_hash from 1 for 16)
-           AND NOT EXISTS (
-             SELECT 1 FROM pages atom
-             WHERE atom.type = 'atom' AND atom.source_id = p.source_id
-               AND atom.frontmatter->>'source_hash' = substring(p.content_hash from 1 for 16)
-               AND atom.deleted_at IS NULL
-           )`;
-    const extractableTypes = await resolveExtractableTypes();
-    const params = scoped
-      ? [sourceId, extractableTypes, MIN_PAGE_CHARS_FOR_EXTRACTION]
-      : [extractableTypes, MIN_PAGE_CHARS_FOR_EXTRACTION];
-    const rows = await engine.executeRaw<{ cnt: string | number }>(sql, params);
+    const sql = `
+      SELECT COUNT(*) AS cnt FROM pages p
+      WHERE p.source_id = $1
+        AND p.type = ANY($2::text[])
+        AND p.deleted_at IS NULL
+        AND p.content_hash IS NOT NULL
+        AND COALESCE(p.frontmatter->>'imported_from',   '') <> 'markdown-greenfield'
+        AND COALESCE(p.frontmatter->>'dream_generated', '') <> 'true'
+        ${RAW_SOURCE_HOLDER_EXCLUSION_SQL}
+        AND length(COALESCE(p.compiled_truth, '')) >= $3
+        AND COALESCE(p.frontmatter->>'atoms_scan_hash', '') <> substring(p.content_hash from 1 for 16)
+        AND NOT EXISTS (
+          SELECT 1 FROM pages atom
+          WHERE atom.type = 'atom' AND atom.source_id = $1
+            AND atom.frontmatter->>'source_hash' = substring(p.content_hash from 1 for 16)
+            AND atom.deleted_at IS NULL
+        )
+    `;
+    const rows = await engine.executeRaw<{ cnt: string | number }>(
+      sql,
+      [sourceId, await resolveExtractableTypes(), MIN_PAGE_CHARS_FOR_EXTRACTION],
+    );
     return Number(rows[0]?.cnt ?? 0);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -532,24 +555,52 @@ export async function runPhaseExtractAtoms(
   }
 
   // 3. Dual-source merge: transcripts + pages, dedup by contentHash.
-  //    Transcripts win on collision (origin attribution stays with the
-  //    raw transcript file even if the same content was later imported
-  //    as a brain page).
+  //    Transcripts win on COLLISION (origin attribution stays with the raw
+  //    transcript file even if the same content was later imported as a
+  //    brain page) — that's decided by the two loops below, which register
+  //    every transcript hash into `seenHashes` before any page is checked,
+  //    same as before this fix. It's independent of the FINAL work-item
+  //    ORDER built after them.
+  //
+  //    Order is page-item-first, interleaved 1-for-1 with transcripts (NOT
+  //    concatenated transcripts-then-pages). The per-call budget cap (step
+  //    4 below) stops processing `work` in list order once
+  //    budgetTracker.totalSpent >= budgetCap, skipping everything after
+  //    that point. Two failure modes this avoids:
+  //      - Concatenation (old code): a transcript corpus that alone
+  //        exceeds the budget cap starves the page pool completely, no
+  //        matter how many drain batches run.
+  //      - Interleaving with transcripts first: still starves ALL pages
+  //        whenever the budget only covers exactly one call (item 0 is a
+  //        transcript, item 1 — the first page — never gets attempted).
+  //    Pages are the ONLY pool `countExtractAtomsBacklog`/doctor's
+  //    extract_atoms_backlog check measures (see that function's
+  //    docstring), so page-first guarantees the doctor-visible backlog
+  //    makes forward progress on every budget-capped call, however tight
+  //    the cap — `--drain` can no longer report the same backlog number
+  //    forever while atoms keep getting extracted from transcripts.
   type WorkItem =
     | { kind: 'transcript'; filePath: string; content: string; contentHash: string }
     | { kind: 'page'; slug: string; content: string; contentHash: string };
 
   const seenHashes = new Set<string>();
-  const work: WorkItem[] = [];
+  const transcriptItems: WorkItem[] = [];
   for (const t of transcriptsLive) {
     if (seenHashes.has(t.contentHash)) { duplicatesSkipped++; continue; }
     seenHashes.add(t.contentHash);
-    work.push({ kind: 'transcript', ...t });
+    transcriptItems.push({ kind: 'transcript', ...t });
   }
+  const pageItems: WorkItem[] = [];
   for (const p of pages) {
     if (seenHashes.has(p.contentHash)) { duplicatesSkipped++; continue; }
     seenHashes.add(p.contentHash);
-    work.push({ kind: 'page', ...p });
+    pageItems.push({ kind: 'page', ...p });
+  }
+  const work: WorkItem[] = [];
+  const maxPoolLen = Math.max(transcriptItems.length, pageItems.length);
+  for (let i = 0; i < maxPoolLen; i++) {
+    if (i < pageItems.length) work.push(pageItems[i]);
+    if (i < transcriptItems.length) work.push(transcriptItems[i]);
   }
 
   // Phase-level no-op: nothing to extract today.
@@ -805,7 +856,16 @@ export async function runPhaseExtractAtoms(
 
   return {
     phase: 'extract_atoms',
-    status: failures.length > 0 ? 'warn' : 'ok',
+    // A phase that skipped every work item and produced nothing did not
+    // succeed, even though skips are not failures and leave failures[] empty.
+    // Reporting 'ok' there hides a total no-op behind a green status.
+    status:
+      failures.length > 0 ||
+      (work.length > 0 &&
+        totalAtomsExtracted === 0 &&
+        transcriptsSkipped + pagesSkipped === work.length)
+        ? 'warn'
+        : 'ok',
     duration_ms: 0,
     summary:
       `extract_atoms: ${totalAtomsExtracted} atoms from ` +

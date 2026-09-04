@@ -156,7 +156,23 @@ const FREE_LOCAL_EMBED_PROVIDERS: ReadonlySet<string> = new Set([
   'llama-server',
 ]);
 
-/** Local chat inference costs electricity rather than token fees. */
+
+/**
+ * Chat sibling of FREE_LOCAL_EMBED_PROVIDERS / FREE_LOCAL_RERANK_PROVIDERS.
+ *
+ * Local inference costs electricity, not tokens, so these providers price at
+ * $0 rather than TX2 hard-failing. Without this a caller that sets ANY cost cap
+ * cannot use a local chat model at all: CANONICAL_PRICING has no `ollama:*`
+ * keys, so `reserve()` throws no_pricing before the first call and every work
+ * item is skipped with `budget_exhausted: true` at $0 spent.
+ *
+ * That is not theoretical — `cycle.extract_atoms` always constructs its tracker
+ * with `maxCostUsd` (config only accepts `n > 0`, so the cap can't be unset),
+ * which made `models.dream.extract_atoms: ollama:*` silently extract nothing.
+ *
+ * `litellm` is excluded on purpose, matching the embed set: a LiteLLM proxy can
+ * front a paid provider, so pricing-unknown is the honest state there.
+ */
 const FREE_LOCAL_CHAT_PROVIDERS: ReadonlySet<string> = new Set([
   'ollama',
   'llama-server',
@@ -226,13 +242,22 @@ function lookupPricing(modelId: string, kind: BudgetKind): ModelPricing | null {
   // above is only the bare-keyed Claude view.
   const canon = canonicalLookup(modelId);
   if (canon) return canon;
+  // Local-inference chat providers cost electricity, not tokens. Checked AFTER
+  // the canonical table so an explicitly-priced local entry, should one ever be
+  // added, still wins over the blanket zero.
   if (kind === 'chat' && providerId && FREE_LOCAL_CHAT_PROVIDERS.has(providerId)) {
     return { input: 0, output: 0 };
   }
   return null;
 }
 
-/** Return true when the tracker can price a model for the requested kind. */
+/**
+ * True when the budget tracker can price this model, i.e. when setting a cost
+ * cap is meaningful. Callers that apply a *default* cap (rather than one the
+ * user asked for) should skip the cap when this returns false — otherwise
+ * `reserve()` hard-fails with BudgetExhausted(reason:'no_pricing') and the
+ * caller silently does no work.
+ */
 export function isModelPriceable(modelId: string, kind: BudgetKind): boolean {
   return lookupPricing(modelId, kind) !== null;
 }
